@@ -37,14 +37,6 @@
   "triggers": {
     "crons": ["0 * * * *"],
   },
-  "secrets": {
-    "required": [
-      "TURNSTILE_SECRET_KEY",
-      "DELETE_TOKEN_PEPPER",
-      "IP_HASH_PEPPER",
-      "ADMIN_TOKEN",
-    ],
-  },
   "vars": {
     "MAX_STORAGE_BYTES": "3221225472",
     "MAX_FILE_BYTES": "52428800",

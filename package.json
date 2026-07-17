@@ -32,8 +32,8 @@
     "test": "cross-env XDG_CONFIG_HOME=.wrangler/xdg TURNSTILE_SECRET_KEY=test-turnstile-secret DELETE_TOKEN_PEPPER=test-delete-token-pepper-32-bytes-minimum IP_HASH_PEPPER=test-ip-hash-pepper-32-bytes-minimum ADMIN_TOKEN=test-admin-token-32-bytes-minimum vitest run",
     "test:watch": "cross-env XDG_CONFIG_HOME=.wrangler/xdg TURNSTILE_SECRET_KEY=test-turnstile-secret DELETE_TOKEN_PEPPER=test-delete-token-pepper-32-bytes-minimum IP_HASH_PEPPER=test-ip-hash-pepper-32-bytes-minimum ADMIN_TOKEN=test-admin-token-32-bytes-minimum vitest",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p public/tsconfig.json && tsc --noEmit -p test/tsconfig.json",
-    "types": "cross-env XDG_CONFIG_HOME=.wrangler/xdg wrangler types src/worker-configuration.d.ts",
-    "types:check": "cross-env XDG_CONFIG_HOME=.wrangler/xdg wrangler types src/worker-configuration.d.ts --check && pnpm typecheck"
+    "types": "cross-env XDG_CONFIG_HOME=.wrangler/xdg CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler types src/worker-configuration.d.ts",
+    "types:check": "cross-env XDG_CONFIG_HOME=.wrangler/xdg CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler types src/worker-configuration.d.ts --check && pnpm typecheck"
   },
   "dependencies": {
     "hono": "latest"
