@@ -1,0 +1,62 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "jwander-temp-storage",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-10",
+  "compatibility_flags": ["nodejs_compat"],
+  "routes": [
+    {
+      "pattern": "upload.jwander.net",
+      "custom_domain": true,
+    },
+    {
+      "pattern": "cdn.jwander.net",
+      "custom_domain": true,
+    },
+  ],
+  "assets": {
+    "directory": "./dist/client",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/p/*", "/d/*"],
+  },
+  "r2_buckets": [
+    {
+      "binding": "FILES",
+      "bucket_name": "jwander-temp-storage",
+    },
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "jwander-temp-storage-db",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "./migrations",
+    },
+  ],
+  "triggers": {
+    "crons": ["0 * * * *"],
+  },
+  "vars": {
+    "MAX_STORAGE_BYTES": "3221225472",
+    "MAX_FILE_BYTES": "52428800",
+    "FILE_RETENTION_SECONDS": "2592000",
+    "RESERVATION_TTL_SECONDS": "900",
+    "UPLOADS_ENABLED": "true",
+    "UPLOAD_ORIGIN": "https://upload.jwander.net",
+    "CDN_ORIGIN": "https://cdn.jwander.net",
+    "TURNSTILE_SITE_KEY": "replace-with-turnstile-site-key",
+  },
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "invocation_logs": true,
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 0.1,
+    },
+  },
+}

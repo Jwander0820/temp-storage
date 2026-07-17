@@ -1,0 +1,6 @@
+* text=auto eol=lf
+
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+src/worker-configuration.d.ts whitespace=-blank-at-eol

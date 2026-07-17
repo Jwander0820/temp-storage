@@ -1,0 +1,15 @@
+node_modules/
+.pnpm-store/
+dist/
+.wrangler/
+.dev.vars
+.env
+.env.*
+!.env.example
+*.log
+.tmp/
+.playwright-cli/
+output/
+coverage/
+playwright-report/
+test-results/

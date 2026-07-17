@@ -1,0 +1,53 @@
+{
+  "name": "jwander-temp-storage",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A private-by-default temporary file service running entirely on Cloudflare.",
+  "packageManager": "pnpm@11.9.0",
+  "scripts": {
+    "build": "pnpm build:client && cross-env XDG_CONFIG_HOME=.wrangler/xdg wrangler deploy --dry-run --outdir dist/worker",
+    "build:client": "vite build",
+    "cf:d1:create": "wrangler d1 create jwander-temp-storage-db",
+    "cf:lifecycle:add": "wrangler r2 bucket lifecycle add jwander-temp-storage expire-temp-objects objects/ --expire-days 30",
+    "cf:lifecycle:list": "wrangler r2 bucket lifecycle list jwander-temp-storage",
+    "cf:r2:create": "wrangler r2 bucket create jwander-temp-storage",
+    "cf:secret:admin": "wrangler secret put ADMIN_TOKEN",
+    "cf:secret:delete-pepper": "wrangler secret put DELETE_TOKEN_PEPPER",
+    "cf:secret:ip-pepper": "wrangler secret put IP_HASH_PEPPER",
+    "cf:secret:turnstile": "wrangler secret put TURNSTILE_SECRET_KEY",
+    "check": "pnpm types:check && pnpm lint && pnpm test && pnpm build",
+    "db:migrate:local": "cross-env XDG_CONFIG_HOME=.wrangler/xdg wrangler d1 migrations apply jwander-temp-storage-db --local",
+    "db:migrate:remote": "cross-env XDG_CONFIG_HOME=.wrangler/xdg wrangler d1 migrations apply DB --remote",
+    "dev": "concurrently -k -n client,worker -c blue,green \"pnpm dev:client\" \"pnpm dev:worker\"",
+    "dev:client": "vite build --watch",
+    "dev:worker": "cross-env XDG_CONFIG_HOME=.wrangler/xdg wrangler dev --test-scheduled",
+    "deploy": "pnpm build:client && cross-env XDG_CONFIG_HOME=.wrangler/xdg wrangler deploy",
+    "deploy:cloudflare": "pnpm db:migrate:remote && cross-env XDG_CONFIG_HOME=.wrangler/xdg wrangler deploy",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint . --max-warnings 0",
+    "test": "cross-env XDG_CONFIG_HOME=.wrangler/xdg vitest run",
+    "test:watch": "cross-env XDG_CONFIG_HOME=.wrangler/xdg vitest",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p public/tsconfig.json && tsc --noEmit -p test/tsconfig.json",
+    "types": "cross-env XDG_CONFIG_HOME=.wrangler/xdg wrangler types src/worker-configuration.d.ts",
+    "types:check": "cross-env XDG_CONFIG_HOME=.wrangler/xdg wrangler types src/worker-configuration.d.ts --check && pnpm typecheck"
+  },
+  "dependencies": {
+    "hono": "latest"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "latest",
+    "@types/node": "latest",
+    "@eslint/js": "latest",
+    "concurrently": "latest",
+    "cross-env": "latest",
+    "eslint": "latest",
+    "prettier": "latest",
+    "typescript": "^6.0.0",
+    "typescript-eslint": "latest",
+    "vite": "latest",
+    "vitest": "latest",
+    "wrangler": "latest"
+  }
+}

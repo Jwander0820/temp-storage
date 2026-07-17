@@ -1,0 +1,7 @@
+# Copy this file to .dev.vars and replace every placeholder.
+TURNSTILE_SECRET_KEY=replace-with-turnstile-secret
+DELETE_TOKEN_PEPPER=replace-with-at-least-32-random-bytes
+IP_HASH_PEPPER=replace-with-at-least-32-random-bytes
+ADMIN_TOKEN=replace-with-at-least-32-random-bytes
+# Optional private gate. Leave empty to disable.
+UPLOAD_ACCESS_CODE=
