@@ -45,7 +45,7 @@
     "UPLOADS_ENABLED": "true",
     "UPLOAD_ORIGIN": "https://upload.jwander.net",
     "CDN_ORIGIN": "https://cdn.jwander.net",
-    "TURNSTILE_SITE_KEY": "replace-with-turnstile-site-key",
+    "TURNSTILE_SITE_KEY": "0x4AAAAAAD3nBLCS0pyrqnEn",
   },
   "observability": {
     "enabled": true,
