@@ -8,6 +8,35 @@ import {
   resolveInvitationSession,
   revokeCurrentInvitationSession,
 } from "../services/invitation-service";
+import { verifyOptionalAccessCode, verifyTurnstile } from "../services/turnstile-service";
+
+interface ExchangeInvitationInput {
+  readonly token: string;
+  readonly turnstileToken: string;
+  readonly accessCode: string | null;
+}
+
+function parseExchangeInput(value: unknown): ExchangeInvitationInput {
+  if (typeof value !== "object" || value === null) {
+    throw new DomainError("INVALID_REQUEST", 400, "邀請資料格式不正確。");
+  }
+  const record = value as Record<string, unknown>;
+  const token = record.token;
+  const turnstileToken = record.turnstileToken;
+  const accessCode = record.accessCode;
+  if (
+    typeof token !== "string" ||
+    typeof turnstileToken !== "string" ||
+    (accessCode !== undefined && accessCode !== null && typeof accessCode !== "string")
+  ) {
+    throw new DomainError("INVALID_REQUEST", 400, "邀請資料格式不正確。");
+  }
+  return {
+    token,
+    turnstileToken,
+    accessCode: accessCode ?? null,
+  };
+}
 
 function invitationPayload(
   invitation: {
@@ -37,16 +66,16 @@ function invitationPayload(
 export const invitationRoutes = new Hono<AppEnv>();
 
 invitationRoutes.post("/invitations/exchange", async (context) => {
-  const value: unknown = await context.req.json<unknown>();
-  if (typeof value !== "object" || value === null || !("token" in value)) {
-    throw new DomainError("INVALID_REQUEST", 400, "邀請資料格式不正確。");
-  }
-  const token = (value as Record<string, unknown>).token;
-  if (typeof token !== "string") {
-    throw new DomainError("INVALID_REQUEST", 400, "邀請資料格式不正確。");
-  }
+  const input = parseExchangeInput(await context.req.json<unknown>());
+  await verifyOptionalAccessCode(context.env, input.accessCode);
+  await verifyTurnstile(
+    context.env,
+    input.turnstileToken,
+    context.req.header("CF-Connecting-IP") ?? "local-development",
+    context.get("requestId"),
+  );
 
-  const { invitation, sessionExpiresAt } = await exchangeInvitationToken(context, token);
+  const { invitation, sessionExpiresAt } = await exchangeInvitationToken(context, input.token);
   const summary = await getInvitationSummary(context.env.DB, invitation.id);
   if (summary === null) {
     throw new DomainError("INTERNAL_ERROR", 500, "無法讀取邀請資料。");

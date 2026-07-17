@@ -6,12 +6,12 @@ describe("Turnstile and optional access code", () => {
     vi.restoreAllMocks();
   });
 
-  it("accepts only the configured Turnstile hostname and upload action", async () => {
+  it("accepts only the configured Turnstile hostname and invitation action", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       Response.json({
         success: true,
         hostname: "upload.example.test",
-        action: "upload",
+        action: "invite",
       }),
     );
     await expect(
@@ -29,7 +29,7 @@ describe("Turnstile and optional access code", () => {
       Response.json({
         success: true,
         hostname: "cdn.example.test",
-        action: "upload",
+        action: "invite",
       }),
     );
     await expect(

@@ -40,8 +40,8 @@ export async function verifyTurnstile(
   try {
     response = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
         secret: env.TURNSTILE_SECRET_KEY,
         response: token,
         remoteip: remoteIp,
@@ -59,7 +59,7 @@ export async function verifyTurnstile(
     !isTurnstileResult(payload) ||
     !payload.success ||
     payload.hostname !== expectedHostname ||
-    payload.action !== "upload"
+    payload.action !== "invite"
   ) {
     console.warn(
       JSON.stringify({

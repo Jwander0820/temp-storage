@@ -32,7 +32,7 @@ export async function resetState(maxBytes = 3221225472): Promise<void> {
 export function mockSuccessfulTurnstile(): void {
   vi.spyOn(globalThis, "fetch").mockImplementation(() =>
     Promise.resolve(
-      Response.json({ success: true, hostname: "upload.example.test", action: "upload" }),
+      Response.json({ success: true, hostname: "upload.example.test", action: "invite" }),
     ),
   );
 }
@@ -74,7 +74,7 @@ export async function createTestInvitationSession(): Promise<string> {
     new Request("https://upload.example.test/api/invitations/exchange", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token }),
+      body: JSON.stringify({ token, turnstileToken: "test-invitation-challenge" }),
     }),
   );
   if (exchange.status !== 200) {

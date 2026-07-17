@@ -54,7 +54,7 @@ interface TurnstileApi {
     container: HTMLElement,
     options: {
       sitekey: string;
-      action: "upload";
+      action: "invite";
       theme: "dark";
       size: "flexible";
       callback(token: string): void;
@@ -72,7 +72,7 @@ declare global {
 }
 
 type UploadState =
-  "queued" | "challenge" | "reserving" | "uploading" | "complete" | "failed" | "cancelled";
+  "queued" | "reserving" | "uploading" | "complete" | "failed" | "cancelled";
 
 interface UploadTask {
   readonly id: string;
@@ -107,6 +107,8 @@ const filePage = elementById("filePage", HTMLElement);
 const inviteGate = elementById("inviteGate", HTMLElement);
 const inviteGateTitle = elementById("inviteGateTitle", HTMLElement);
 const inviteGateMessage = elementById("inviteGateMessage", HTMLElement);
+const inviteVerification = elementById("inviteVerification", HTMLElement);
+const verifyInviteButton = elementById("verifyInviteButton", HTMLButtonElement);
 const uploadWorkspace = elementById("uploadWorkspace", HTMLElement);
 const invitationLabel = elementById("invitationLabel", HTMLElement);
 const invitationRemaining = elementById("invitationRemaining", HTMLElement);
@@ -323,12 +325,12 @@ class TurnstileTokenManager {
 
     this.widgetId = api.render(turnstileContainer, {
       sitekey: siteKey,
-      action: "upload",
+      action: "invite",
       theme: "dark",
       size: "flexible",
       callback: (token) => this.acceptToken(token),
       "expired-callback": () => {
-        this.token = null;
+        this.refresh();
       },
       "error-callback": () => {
         this.rejectWaiters(new Error("安全驗證失敗，請重新整理後再試。"));
@@ -381,6 +383,7 @@ class TurnstileTokenManager {
   }
 
   refresh(): void {
+    this.token = null;
     const widgetId = this.widgetId;
     if (widgetId !== null) {
       window.setTimeout(() => window.turnstile?.reset(widgetId), 0);
@@ -418,8 +421,6 @@ function stateLabel(task: UploadTask): string {
   switch (task.state) {
     case "queued":
       return "等待中";
-    case "challenge":
-      return "等待人機驗證";
     case "reserving":
       return "保留容量";
     case "uploading":
@@ -483,7 +484,7 @@ function renderQueue(): void {
 
     const actions = document.createElement("div");
     actions.className = "upload-item__actions";
-    if (task.state === "queued" || task.state === "challenge" || task.state === "reserving") {
+    if (task.state === "queued" || task.state === "reserving") {
       actions.append(createActionButton("取消", () => cancelTask(task)));
     } else if (task.state === "uploading") {
       actions.append(createActionButton("中止上傳", () => cancelTask(task)));
@@ -593,8 +594,8 @@ function pumpQueue(): void {
       return;
     }
     activeUploads += 1;
-    task.state = "challenge";
-    task.message = "請先完成下方安全驗證。";
+    task.state = "reserving";
+    task.message = "正在檢查配額與保留空間。";
     renderQueue();
     void processTask(task).finally(() => {
       activeUploads -= 1;
@@ -606,32 +607,16 @@ function pumpQueue(): void {
 
 async function processTask(task: UploadTask): Promise<void> {
   try {
-    const turnstileToken = await turnstile.takeToken(task.abortController.signal);
-    if (task.cancelled) {
-      return;
-    }
-
-    task.state = "reserving";
-    task.message = "正在檢查配額與保留空間。";
-    renderQueue();
-
-    let reserveResponse: Response;
-    try {
-      reserveResponse = await fetch("/api/uploads/reserve", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        signal: task.abortController.signal,
-        body: JSON.stringify({
-          filename: task.file.name,
-          sizeBytes: task.file.size,
-          declaredMime: task.file.type || null,
-          turnstileToken,
-          accessCode: config?.accessCodeRequired ? accessCodeInput.value : null,
-        }),
-      });
-    } finally {
-      turnstile.refresh();
-    }
+    const reserveResponse = await fetch("/api/uploads/reserve", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: task.abortController.signal,
+      body: JSON.stringify({
+        filename: task.file.name,
+        sizeBytes: task.file.size,
+        declaredMime: task.file.type || null,
+      }),
+    });
     if (!reserveResponse.ok) {
       throw new Error(await responseError(reserveResponse));
     }
@@ -741,15 +726,11 @@ async function loadConfig(): Promise<void> {
   }
   const payload: unknown = await response.json();
   config = parseConfig(payload);
-  if (config.accessCodeRequired) {
-    accessCodeField.classList.remove("is-hidden");
-  }
   if (!config.uploadsEnabled) {
     dropZone.classList.add("is-disabled");
     chooseButton.disabled = true;
     showToast("管理者目前暫停上傳。", "error");
   }
-  await turnstile.initialize(config.turnstileSiteKey);
 }
 
 function inviteTokenFromFragment(): string | null {
@@ -760,11 +741,18 @@ function inviteTokenFromFragment(): string | null {
   return token === null || token.length === 0 ? null : token;
 }
 
-async function exchangeInvitation(token: string): Promise<InvitationSessionInfo> {
+async function exchangeInvitation(
+  token: string,
+  turnstileToken: string,
+): Promise<InvitationSessionInfo> {
   const response = await fetch("/api/invitations/exchange", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ token }),
+    body: JSON.stringify({
+      token,
+      turnstileToken,
+      accessCode: config?.accessCodeRequired ? accessCodeInput.value : null,
+    }),
   });
   if (!response.ok) {
     throw new Error(await responseError(response));
@@ -795,20 +783,49 @@ function activateInvitation(session: InvitationSessionInfo): void {
 }
 
 async function initializeUploadPage(): Promise<void> {
+  await loadConfig();
   const invitationToken = inviteTokenFromFragment();
-  let session: InvitationSessionInfo | null;
   if (invitationToken !== null) {
-    inviteGateTitle.textContent = "正在驗證邀請";
-    inviteGateMessage.textContent = "請稍候，正在建立安全的短期上傳 session。";
-    try {
-      session = await exchangeInvitation(invitationToken);
-    } finally {
-      window.history.replaceState(null, "", window.location.pathname);
+    window.history.replaceState(null, "", window.location.pathname);
+    inviteGateTitle.textContent = "完成一次安全驗證";
+    inviteGateMessage.textContent =
+      "驗證成功後會建立最長 12 小時的上傳 session，期間不必為每個檔案重複驗證。";
+    inviteVerification.classList.remove("is-hidden");
+    if (config?.accessCodeRequired) {
+      accessCodeField.classList.remove("is-hidden");
     }
-  } else {
-    session = await loadInvitationSession();
+    await turnstile.initialize(config?.turnstileSiteKey ?? "");
+
+    verifyInviteButton.addEventListener("click", () => {
+      if (config?.accessCodeRequired && accessCodeInput.value.trim().length === 0) {
+        inviteGateMessage.textContent = "請先輸入私人上傳碼。";
+        accessCodeInput.focus();
+        return;
+      }
+
+      verifyInviteButton.disabled = true;
+      inviteGateTitle.textContent = "正在建立上傳 session";
+      inviteGateMessage.textContent = "請完成安全驗證，系統會自動繼續。";
+      const controller = new AbortController();
+      void turnstile
+        .takeToken(controller.signal)
+        .then((turnstileToken) => exchangeInvitation(invitationToken, turnstileToken))
+        .then(async (session) => {
+          activateInvitation(session);
+          await loadStorage();
+        })
+        .catch((error: unknown) => {
+          inviteGateTitle.textContent = "邀請驗證失敗";
+          inviteGateMessage.textContent =
+            error instanceof Error ? error.message : "請重新完成安全驗證。";
+          turnstile.refresh();
+          verifyInviteButton.disabled = false;
+        });
+    });
+    return;
   }
 
+  const session = await loadInvitationSession();
   if (session === null) {
     inviteGateTitle.textContent = "需要有效的上傳邀請";
     inviteGateMessage.textContent =
@@ -817,7 +834,7 @@ async function initializeUploadPage(): Promise<void> {
   }
 
   activateInvitation(session);
-  await Promise.all([loadStorage(), loadConfig()]);
+  await loadStorage();
 }
 
 function mediaElement(file: PublicFile): HTMLElement | null {

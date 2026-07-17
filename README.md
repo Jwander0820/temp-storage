@@ -23,9 +23,9 @@ R2 bucket 不可開啟 Public Development URL 或 Public Bucket；公開內容�
 
 ```text
 Browser
-  ├─ invitation URL fragment ──── exchange ── short-lived HttpOnly session
+  ├─ invitation URL fragment + Turnstile ── exchange ── short-lived HttpOnly session
   ├─ Static Assets ─────────────── upload.jwander.net only
-  ├─ reserve / raw PUT ────────── session + Turnstile + optional access code
+  ├─ reserve / raw PUT ────────── session + invitation quota
   └─ preview / download ───────── cdn.jwander.net GET/HEAD ── private R2 stream
 
 Cron (hourly)
@@ -114,7 +114,7 @@ ADMIN_TOKEN
 ```
 
 `UPLOAD_ACCESS_CODE` 是可選的第二道私人上傳碼。邀請 session 永遠是必要條件；設定這個
-secret 後，持有邀請連結的人仍須另外輸入上傳碼才能建立 reservation。這些值只放
+secret 後，持有邀請連結的人仍須在兌換 session 時另外輸入上傳碼。這些值只放
 Cloudflare，不放 GitHub Builds variables，也不可提交 repository。設定完成後重新執行
 一次 deployment。
 
@@ -271,10 +271,10 @@ GET https://upload.jwander.net/api/storage
 GET    /api/health
 GET    /api/config
 GET    /api/storage
-POST   /api/invitations/exchange  body: { token }; sets HttpOnly session cookie
+POST   /api/invitations/exchange  body: { token, turnstileToken, accessCode? }; sets HttpOnly session cookie
 GET    /api/invitations/session   requires invitation session cookie
 DELETE /api/invitations/session   revokes current session
-POST   /api/uploads/reserve       requires invitation session + Turnstile
+POST   /api/uploads/reserve       requires invitation session
 PUT    /api/uploads/:uploadId     requires the same invitation session
 GET    /api/files/:fileId
 DELETE /api/files/:fileId       Authorization: DeleteToken {token}
@@ -303,7 +303,46 @@ DELETE /api/admin/files/:fileId
 ### 建立與撤銷邀請
 
 每個邀請都有獨立到期時間、檔案數與總容量限制。建立 API 只回傳一次明文 token；D1
-只保存 peppered hash。以下建立一份 7 天、最多 10 個檔案、總計 300 MiB 的邀請：
+只保存 peppered hash。先將部署時使用的 `ADMIN_TOKEN` 放入目前的終端機環境變數：
+
+```bat
+set ADMIN_TOKEN=你的管理Token
+```
+
+PowerShell 使用：
+
+```powershell
+$env:ADMIN_TOKEN = "你的管理Token"
+```
+
+接著執行本機邀請指令。未指定選項時預設名稱為 `upload`、有效 7 天、最多 10 個檔案、
+總計 300 MiB：
+
+```powershell
+pnpm invite:create
+pnpm invite:create --label "upload" --days 7 --files 10 --mb 300
+```
+
+Windows CMD 也可以直接執行根目錄的批次檔：
+
+```bat
+invite-create.cmd
+invite-create.cmd --label "upload" --days 7 --files 10 --mb 300
+```
+
+若不想每次設定環境變數，可在專案根目錄建立已被 Git 忽略的 `.env`：
+
+```dotenv
+ADMIN_TOKEN=你的管理Token
+```
+
+邀請腳本依序使用目前程序的 `ADMIN_TOKEN`、`.env.local`、`.env`、`.dev.vars`，且不會顯示
+管理 token 的內容。
+
+建立成功後，指令會顯示邀請 ID、到期時間與 `inviteUrl`，並在 Windows 自動將網址複製
+到剪貼簿。`ADMIN_TOKEN` 只從環境變數讀取，不應寫入 repository。
+
+也可以直接呼叫管理 API：
 
 ```powershell
 $headers = @{ Authorization = "Bearer $env:ADMIN_TOKEN" }
@@ -325,8 +364,10 @@ $invitation.inviteUrl
 ```
 
 邀請 URL 使用 `/invite#token=...`。fragment 不會隨初始 HTTP request 傳到伺服器；前端
-以 `POST /api/invitations/exchange` 交換成最多 12 小時的 `HttpOnly; Secure;
-SameSite=Strict` session，隨後立即從網址列移除 token。
+完成一次 Turnstile（以及選用的 `UPLOAD_ACCESS_CODE`）後，以
+`POST /api/invitations/exchange` 交換成最多 12 小時的 `HttpOnly; Secure;
+SameSite=Strict` session，隨後立即從網址列移除 token。session 有效期間，每個檔案不再
+重複執行 Turnstile；上傳 API 只驗證 session、邀請期限與配額。
 
 列出與撤銷：
 
@@ -353,9 +394,9 @@ Invoke-RestMethod `
   的 peppered SHA-256 hash。
 - 每個邀請可獨立限制有效期、檔案數、總 bytes 並撤銷；所有 `/api/uploads/*` 都要求
   session，且 raw PUT 必須與建立 reservation 的邀請相同。
-- Turnstile Siteverify 會比對 `hostname=upload.jwander.net` 與 `action=upload`；Turnstile
-  只負責防自動化，不取代邀請授權。
-- `UPLOAD_ACCESS_CODE` 若設定，會在 invitation session 之外再驗證一次。
+- Turnstile Siteverify 在兌換 session 時比對 `hostname=upload.jwander.net` 與
+  `action=invite`；Turnstile 只負責防止自動化兌換，不取代邀請授權。
+- `UPLOAD_ACCESS_CODE` 若設定，會在兌換 invitation session 時驗證一次。
 - Worker 會在 Static Assets 前檢查 hostname；CDN hostname 只能讀取公開媒體路徑。
 - uploader rate limit 只保存每日輪替的 peppered IP hash，不保存原始 IP。
 - Worker 只緩衝最多 4096 bytes 進行 magic-byte detection；本體以 stream 寫入 R2。

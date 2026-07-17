@@ -197,11 +197,21 @@ button:disabled {
   letter-spacing: -0.04em;
 }
 
-.invitation-gate p:last-child,
+.invitation-gate > p,
 .invitation-summary p {
   margin: 0;
   color: var(--muted);
   line-height: 1.7;
+}
+
+.invitation-verification {
+  display: grid;
+  gap: 14px;
+  margin-top: 22px;
+}
+
+.invitation-verification .primary-button {
+  width: fit-content;
 }
 
 .invitation-summary {

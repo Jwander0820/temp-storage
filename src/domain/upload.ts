@@ -15,6 +15,4 @@ export interface ReserveUploadInput {
   readonly filename: string;
   readonly sizeBytes: number;
   readonly declaredMime: string | null;
-  readonly turnstileToken: string;
-  readonly accessCode: string | null;
 }

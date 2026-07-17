@@ -29,7 +29,7 @@ async function exchange(token: string): Promise<{ response: Response; cookie: st
     new Request("https://upload.example.test/api/invitations/exchange", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token }),
+      body: JSON.stringify({ token, turnstileToken: "test-invitation-challenge" }),
     }),
   );
   const cookie = response.headers.get("Set-Cookie")?.split(";", 1)[0] ?? "";
@@ -39,6 +39,7 @@ async function exchange(token: string): Promise<{ response: Response; cookie: st
 describe("upload invitations", () => {
   beforeEach(async () => {
     await resetState();
+    mockSuccessfulTurnstile();
   });
 
   afterEach(() => {
@@ -65,6 +66,7 @@ describe("upload invitations", () => {
     expect(setCookie).toContain("Secure");
     expect(setCookie).toContain("SameSite=Strict");
     expect(cookie).not.toContain(invitation.token);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
 
     const session = await exports.default.fetch(
       new Request("https://upload.example.test/api/invitations/session", {
@@ -78,6 +80,19 @@ describe("upload invitations", () => {
       remainingFiles: 3,
       remainingBytes: 1024,
     });
+  });
+
+  it("requires Turnstile when exchanging an invitation", async () => {
+    const invitation = await createInvitation();
+    const response = await exports.default.fetch(
+      new Request("https://upload.example.test/api/invitations/exchange", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: invitation.token }),
+      }),
+    );
+    expect(response.status).toBe(400);
+    expect(response.headers.get("Set-Cookie")).toBeNull();
   });
 
   it("requires a valid invitation session on every upload endpoint", async () => {
@@ -103,7 +118,6 @@ describe("upload invitations", () => {
   it("enforces invitation file and byte limits independently of the IP limit", async () => {
     const invitation = await createInvitation({ maxFiles: 1, maxBytes: 10 });
     const { cookie } = await exchange(invitation.token);
-    mockSuccessfulTurnstile();
 
     const reserve = (suffix: string) =>
       exports.default.fetch(
@@ -118,7 +132,6 @@ describe("upload invitations", () => {
             filename: `${suffix}.txt`,
             sizeBytes: 1,
             declaredMime: "text/plain",
-            turnstileToken: `token-${suffix}`,
           }),
         }),
       );
@@ -129,6 +142,7 @@ describe("upload invitations", () => {
     await expect(limited.json()).resolves.toMatchObject({
       error: { code: "INVITATION_LIMIT_EXCEEDED" },
     });
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
   });
 
   it("revokes all sessions for a single invitation", async () => {
@@ -170,7 +184,6 @@ describe("upload invitations", () => {
     );
     const second = await secondResponse.json<{ token: string }>();
     const secondSession = await exchange(second.token);
-    mockSuccessfulTurnstile();
 
     const reservationResponse = await exports.default.fetch(
       new Request("https://upload.example.test/api/uploads/reserve", {
@@ -184,7 +197,6 @@ describe("upload invitations", () => {
           filename: "private.txt",
           sizeBytes: 1,
           declaredMime: "text/plain",
-          turnstileToken: "first-token",
         }),
       }),
     );

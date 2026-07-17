@@ -8,6 +8,7 @@ export default tseslint.config(
       "node_modules/**",
       ".wrangler/**",
       ".tmp/**",
+      "scripts/**/*.mjs",
       "src/worker-configuration.d.ts",
       "eslint.config.js",
       "vite.config.ts",

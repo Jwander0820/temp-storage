@@ -14,7 +14,6 @@ import {
 import { classifyFile, isBlockedDeclaredMime } from "../services/file-type-service";
 import { toPublicFile } from "../services/file-service";
 import { storeObject } from "../services/r2-service";
-import { verifyOptionalAccessCode, verifyTurnstile } from "../services/turnstile-service";
 import { getExtension, isBlockedExtension, sanitizeOriginalFilename } from "../utils/filename";
 import { createDeleteToken, createFileId, hashPepperedValue } from "../utils/hash";
 import { peekStream } from "../utils/stream";
@@ -28,15 +27,11 @@ function parseReserveInput(value: unknown): ReserveUploadInput {
   const filename = record.filename;
   const sizeBytes = record.sizeBytes;
   const declaredMime = record.declaredMime;
-  const turnstileToken = record.turnstileToken;
-  const accessCode = record.accessCode;
 
   if (
     typeof filename !== "string" ||
     typeof sizeBytes !== "number" ||
-    typeof turnstileToken !== "string" ||
-    (declaredMime !== undefined && declaredMime !== null && typeof declaredMime !== "string") ||
-    (accessCode !== undefined && accessCode !== null && typeof accessCode !== "string")
+    (declaredMime !== undefined && declaredMime !== null && typeof declaredMime !== "string")
   ) {
     throw new DomainError("INVALID_REQUEST", 400, "上傳資料格式不正確。");
   }
@@ -45,8 +40,6 @@ function parseReserveInput(value: unknown): ReserveUploadInput {
     filename,
     sizeBytes,
     declaredMime: declaredMime ?? null,
-    turnstileToken,
-    accessCode: accessCode ?? null,
   };
 }
 
@@ -89,14 +82,7 @@ uploadRoutes.post("/uploads/reserve", async (context) => {
     throw new DomainError("FILE_TYPE_BLOCKED", 400, "這個檔案類型不允許上傳。");
   }
 
-  await verifyOptionalAccessCode(context.env, input.accessCode);
   const remoteIp = context.req.header("CF-Connecting-IP") ?? "local-development";
-  await verifyTurnstile(
-    context.env,
-    input.turnstileToken,
-    remoteIp,
-    context.get("requestId"),
-  );
 
   const now = Math.floor(Date.now() / 1000);
   const previousDay = now - 86400;

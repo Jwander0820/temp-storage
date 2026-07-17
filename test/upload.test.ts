@@ -18,7 +18,6 @@ async function reserve(filename: string, bytes: Uint8Array, declaredMime: string
         filename,
         sizeBytes: bytes.byteLength,
         declaredMime,
-        turnstileToken: "test-token",
       }),
     }),
   );
@@ -50,8 +49,8 @@ async function upload(
 describe("upload, preview, download, and delete", () => {
   beforeEach(async () => {
     await resetState();
-    sessionCookie = await createTestInvitationSession();
     mockSuccessfulTurnstile();
+    sessionCookie = await createTestInvitationSession();
   });
 
   afterEach(() => {

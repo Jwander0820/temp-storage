@@ -51,6 +51,21 @@
           <p id="inviteGateMessage">
             請使用分享者提供的完整邀請連結，或掃描對方提供的 NFC／QR Code。
           </p>
+          <div id="inviteVerification" class="invitation-verification is-hidden">
+            <label id="accessCodeField" class="access-code is-hidden">
+              <span class="label">私人上傳碼</span>
+              <input
+                id="accessCodeInput"
+                type="password"
+                autocomplete="one-time-code"
+                placeholder="輸入上傳存取碼"
+              />
+            </label>
+            <div id="turnstileContainer" class="turnstile-slot" aria-live="polite"></div>
+            <button id="verifyInviteButton" class="primary-button" type="button">
+              驗證並進入上傳空間
+            </button>
+          </div>
         </section>
 
         <section id="uploadWorkspace" class="workspace is-hidden" aria-labelledby="upload-title">
@@ -105,18 +120,6 @@
             </div>
             <button id="chooseButton" class="primary-button" type="button">選擇檔案</button>
           </div>
-
-          <label id="accessCodeField" class="access-code is-hidden">
-            <span class="label">私人上傳碼</span>
-            <input
-              id="accessCodeInput"
-              type="password"
-              autocomplete="one-time-code"
-              placeholder="輸入上傳存取碼"
-            />
-          </label>
-
-          <div id="turnstileContainer" class="turnstile-slot" aria-live="polite"></div>
 
           <section class="queue" aria-labelledby="queue-title">
             <div class="queue__heading">
