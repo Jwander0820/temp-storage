@@ -30,7 +30,7 @@
     {
       "binding": "DB",
       "database_name": "jwander-temp-storage-db",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "0c560750-18b1-4997-8260-d60d5cd39694",
       "migrations_dir": "./migrations",
     },
   ],
