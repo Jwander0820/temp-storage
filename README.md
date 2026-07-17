@@ -23,10 +23,10 @@ R2 bucket 不可開啟 Public Development URL 或 Public Bucket；公開內容�
 
 ```text
 Browser
-  ├─ Static Assets ─────────────── upload.jwander.net
-  ├─ reserve / raw PUT ────────── Worker ── D1 quota + metadata
-  ├─ preview / download ───────── Worker ── private R2 stream
-  └─ Turnstile ────────────────── Worker server-side Siteverify
+  ├─ invitation URL fragment ──── exchange ── short-lived HttpOnly session
+  ├─ Static Assets ─────────────── upload.jwander.net only
+  ├─ reserve / raw PUT ────────── session + Turnstile + optional access code
+  └─ preview / download ───────── cdn.jwander.net GET/HEAD ── private R2 stream
 
 Cron (hourly)
   ├─ release expired reservations
@@ -65,7 +65,7 @@ Assets 的 Workers 專案。GitHub 保存原始碼；Cloudflare Workers Builds �
 
 1. R2 bucket：`jwander-temp-storage`，保持 private。
 2. D1 database：`jwander-temp-storage-db`，複製其 UUID。
-3. Turnstile widget：允許 `upload.jwander.net`，記下 site key 與 secret key。
+3. Turnstile widget：只允許 `upload.jwander.net`，記下 site key 與 secret key。
 
 接著在 [`wrangler.jsonc`](./wrangler.jsonc)：
 
@@ -113,8 +113,10 @@ IP_HASH_PEPPER
 ADMIN_TOKEN
 ```
 
-`UPLOAD_ACCESS_CODE` 是可選的私人上傳碼。這些值只放 Cloudflare，不放 GitHub Builds
-variables，也不可提交 repository。設定完成後重新執行一次 deployment。
+`UPLOAD_ACCESS_CODE` 是可選的第二道私人上傳碼。邀請 session 永遠是必要條件；設定這個
+secret 後，持有邀請連結的人仍須另外輸入上傳碼才能建立 reservation。這些值只放
+Cloudflare，不放 GitHub Builds variables，也不可提交 repository。設定完成後重新執行
+一次 deployment。
 
 最後到 R2 bucket 的 **Settings → Object Lifecycle Rules**，為 `objects/` prefix 新增 30
 天 expiration rule。這是一次性設定，不應在每次 Git 部署時重複建立。
@@ -172,7 +174,7 @@ pnpm run cf:secret:admin
 - `IP_HASH_PEPPER`：至少 32 bytes 的隨機 secret。
 - `ADMIN_TOKEN`：至少 32 bytes 的隨機 Bearer token。
 
-若要限制只有持有分享碼的人能建立 reservation，再設定：
+若要在邀請 session 之外再疊加一組短期共用上傳碼，設定：
 
 ```powershell
 pnpm exec wrangler secret put UPLOAD_ACCESS_CODE
@@ -231,7 +233,7 @@ reconciliation。
 
 1. D1 UUID 已寫入 `wrangler.jsonc`。
 2. Turnstile site key 已更新。
-3. 五個 secrets（含可選的 `UPLOAD_ACCESS_CODE`）已設定。
+3. 四個必要 secrets 與可選的 `UPLOAD_ACCESS_CODE` 已設定。
 4. D1 migrations 已套用。
 5. R2 Lifecycle Rule 已建立。
 6. R2 bucket 仍為 private。
@@ -242,8 +244,11 @@ pnpm deploy
 
 `wrangler.jsonc` 已宣告兩個 Custom Domains：
 
-- `upload.jwander.net`：UI、API、下載與管理 API。
-- `cdn.jwander.net`：媒體預覽；仍由同一 Worker 驗證 D1 policy 後讀取 R2。
+- `upload.jwander.net`：公開邀請頁、邀請交換、受 session 保護的上傳 API 與管理 API。
+- `cdn.jwander.net`：只接受 `/p/:id`、`/d/:id` 的 `GET`/`HEAD`；其他路徑一律 404。
+
+Static Assets 設為 `run_worker_first: true`，確保 `cdn.jwander.net` 的首頁或前端資產不會
+繞過 Worker 的 hostname 邊界直接由資產層送出。
 
 首次部署時 Wrangler 會為 Custom Domain 建立或接管所需 DNS 設定。部署後確認：
 
@@ -266,8 +271,11 @@ GET https://upload.jwander.net/api/storage
 GET    /api/health
 GET    /api/config
 GET    /api/storage
-POST   /api/uploads/reserve
-PUT    /api/uploads/:uploadId
+POST   /api/invitations/exchange  body: { token }; sets HttpOnly session cookie
+GET    /api/invitations/session   requires invitation session cookie
+DELETE /api/invitations/session   revokes current session
+POST   /api/uploads/reserve       requires invitation session + Turnstile
+PUT    /api/uploads/:uploadId     requires the same invitation session
 GET    /api/files/:fileId
 DELETE /api/files/:fileId       Authorization: DeleteToken {token}
 GET    /p/:fileId
@@ -281,6 +289,9 @@ HEAD   /d/:fileId
 ```text
 GET    /api/admin/status
 GET    /api/admin/files
+POST   /api/admin/invitations
+GET    /api/admin/invitations
+DELETE /api/admin/invitations/:invitationId
 POST   /api/admin/cleanup
 POST   /api/admin/reconcile
 DELETE /api/admin/files/:fileId
@@ -289,11 +300,63 @@ DELETE /api/admin/files/:fileId
 `GET /api/admin/files` 支援 `status`、`mime`、`createdBefore`、`createdAfter`、
 `expiresBefore`、`cursor` 與最大 100 的 `limit`。
 
+### 建立與撤銷邀請
+
+每個邀請都有獨立到期時間、檔案數與總容量限制。建立 API 只回傳一次明文 token；D1
+只保存 peppered hash。以下建立一份 7 天、最多 10 個檔案、總計 300 MiB 的邀請：
+
+```powershell
+$headers = @{ Authorization = "Bearer $env:ADMIN_TOKEN" }
+$body = @{
+  label = "朋友 A"
+  expiresInSeconds = 604800
+  maxFiles = 10
+  maxBytes = 314572800
+} | ConvertTo-Json
+
+$invitation = Invoke-RestMethod `
+  -Method Post `
+  -Uri "https://upload.jwander.net/api/admin/invitations" `
+  -Headers $headers `
+  -ContentType "application/json" `
+  -Body $body
+
+$invitation.inviteUrl
+```
+
+邀請 URL 使用 `/invite#token=...`。fragment 不會隨初始 HTTP request 傳到伺服器；前端
+以 `POST /api/invitations/exchange` 交換成最多 12 小時的 `HttpOnly; Secure;
+SameSite=Strict` session，隨後立即從網址列移除 token。
+
+列出與撤銷：
+
+```powershell
+Invoke-RestMethod `
+  -Uri "https://upload.jwander.net/api/admin/invitations" `
+  -Headers $headers
+
+Invoke-RestMethod `
+  -Method Delete `
+  -Uri "https://upload.jwander.net/api/admin/invitations/<invitation-id>" `
+  -Headers $headers
+```
+
+撤銷邀請會同步撤銷該邀請建立的所有 session。NFC 或 QR Code 應保存 `inviteUrl`，而非
+管理員 token 或任何 Cloudflare secret。
+
 ## 安全設計
 
 - reservation 使用 D1 conditional update 與 batch，不以先讀後寫方式計算配額。
 - 檔案 ID 為 128-bit cryptographically secure random base64url。
 - delete token 為 256-bit random，D1 只保存 peppered SHA-256 hash。
+- invitation token 與 session token 都是 256-bit random；D1 只保存帶 domain separation
+  的 peppered SHA-256 hash。
+- 每個邀請可獨立限制有效期、檔案數、總 bytes 並撤銷；所有 `/api/uploads/*` 都要求
+  session，且 raw PUT 必須與建立 reservation 的邀請相同。
+- Turnstile Siteverify 會比對 `hostname=upload.jwander.net` 與 `action=upload`；Turnstile
+  只負責防自動化，不取代邀請授權。
+- `UPLOAD_ACCESS_CODE` 若設定，會在 invitation session 之外再驗證一次。
+- Worker 會在 Static Assets 前檢查 hostname；CDN hostname 只能讀取公開媒體路徑。
 - uploader rate limit 只保存每日輪替的 peppered IP hash，不保存原始 IP。
 - Worker 只緩衝最多 4096 bytes 進行 magic-byte detection；本體以 stream 寫入 R2。
 - inline response 只使用 Worker 偵測出的 MIME；其他內容強制 attachment。
@@ -307,7 +370,7 @@ DELETE /api/admin/files/:fileId
   50 MiB。
 - reconciliation 每次最多檢查 500 筆 active metadata 與 1,000 個 R2 objects；超過時
   由後續每日執行繼續處理。
-- `cdn.jwander.net` 是同一 Worker 的 Custom Domain，因此其他路徑也會到達 Worker；
-  服務沒有公開 listing，媒體本體仍須通過 D1 policy。
+- 邀請 URL 是 bearer capability；收件者轉傳、NFC 被複製或裝置遭入侵時，其他人也能在
+  到期與配額內使用。請為不同對象建立不同邀請，並在不需要時撤銷。
 - 使用者取消已送出的 request 時，Worker 會在寫入失敗流程釋放 reservation；若連線在
   reservation 後、PUT 前中斷，15 分鐘後由 Cron 回收。

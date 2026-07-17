@@ -3,11 +3,12 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { reserveQuotaAndCreateRecords } from "../src/repositories/quota-repository";
 import { completeUpload } from "../src/repositories/upload-repository";
 import { runCleanup } from "../src/services/cleanup-service";
-import { resetState } from "./helpers";
+import { createTestInvitation, resetState, TEST_INVITATION_ID } from "./helpers";
 
 describe("cleanup", () => {
   beforeEach(async () => {
     await resetState();
+    await createTestInvitation({ now: 1_800_000_000 });
   });
 
   it("releases expired reservations", async () => {
@@ -23,6 +24,7 @@ describe("cleanup", () => {
       sizeBytes: 25,
       uploaderHash: "uploader",
       previousUploaderHash: "previous",
+      invitationId: TEST_INVITATION_ID,
       createdAt: now - 1000,
       reservationExpiresAt: now - 100,
       fileExpiresAt: now + 1000,
@@ -49,6 +51,7 @@ describe("cleanup", () => {
       sizeBytes: 4,
       uploaderHash: "uploader",
       previousUploaderHash: "previous",
+      invitationId: TEST_INVITATION_ID,
       createdAt: now - 1000,
       reservationExpiresAt: now + 100,
       fileExpiresAt: now - 1,

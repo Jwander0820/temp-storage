@@ -1,7 +1,9 @@
 import { env, exports } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CompletedUpload } from "./helpers";
-import { mockSuccessfulTurnstile, resetState } from "./helpers";
+import { createTestInvitationSession, mockSuccessfulTurnstile, resetState } from "./helpers";
+
+let sessionCookie = "";
 
 async function reserve(filename: string, bytes: Uint8Array, declaredMime: string) {
   const response = await exports.default.fetch(
@@ -10,6 +12,7 @@ async function reserve(filename: string, bytes: Uint8Array, declaredMime: string
       headers: {
         "CF-Connecting-IP": "203.0.113.10",
         "Content-Type": "application/json",
+        Cookie: sessionCookie,
       },
       body: JSON.stringify({
         filename,
@@ -35,6 +38,7 @@ async function upload(
       headers: {
         "Content-Length": String(bytes.byteLength),
         "Content-Type": "application/octet-stream",
+        Cookie: sessionCookie,
       },
       body: bytes,
     }),
@@ -46,6 +50,7 @@ async function upload(
 describe("upload, preview, download, and delete", () => {
   beforeEach(async () => {
     await resetState();
+    sessionCookie = await createTestInvitationSession();
     mockSuccessfulTurnstile();
   });
 
@@ -61,6 +66,8 @@ describe("upload, preview, download, and delete", () => {
     expect(result.detectedMime).toBe("image/jpeg");
     expect(result.previewPolicy).toBe("inline");
     expect(result.deleteToken.length).toBeGreaterThan(40);
+    expect(result.previewUrl).toBe(`https://cdn.example.test/p/${result.id}`);
+    expect(result.downloadUrl).toBe(`https://cdn.example.test/d/${result.id}`);
 
     const storedToken = await env.DB.prepare("SELECT delete_token_hash FROM files WHERE id = ?1")
       .bind(result.id)
@@ -100,7 +107,7 @@ describe("upload, preview, download, and delete", () => {
     expect(preview.status).toBe(404);
 
     const download = await exports.default.fetch(
-      new Request(`https://upload.example.test/d/${result.id}`),
+      new Request(`https://cdn.example.test/d/${result.id}`),
     );
     expect(download.status).toBe(200);
     expect(download.headers.get("content-type")).toBe("application/octet-stream");
@@ -113,7 +120,7 @@ describe("upload, preview, download, and delete", () => {
     const response = await exports.default.fetch(
       new Request(`https://upload.example.test${reservation.uploadUrl}`, {
         method: "PUT",
-        headers: { "Content-Length": String(bytes.byteLength) },
+        headers: { "Content-Length": String(bytes.byteLength), Cookie: sessionCookie },
         body: bytes,
       }),
     );

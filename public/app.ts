@@ -14,6 +14,19 @@ interface StorageUsage {
   readonly usageRatio: number;
 }
 
+interface InvitationSessionInfo {
+  readonly authenticated: true;
+  readonly label: string;
+  readonly maxFiles: number;
+  readonly maxBytes: number;
+  readonly usedFiles: number;
+  readonly usedBytes: number;
+  readonly remainingFiles: number;
+  readonly remainingBytes: number;
+  readonly expiresAt: string;
+  readonly sessionExpiresAt: string;
+}
+
 interface PublicFile {
   readonly id: string;
   readonly filename: string;
@@ -41,6 +54,7 @@ interface TurnstileApi {
     container: HTMLElement,
     options: {
       sitekey: string;
+      action: "upload";
       theme: "dark";
       size: "flexible";
       callback(token: string): void;
@@ -90,6 +104,12 @@ function elementById<T extends HTMLElement>(
 
 const uploadPage = elementById("uploadPage", HTMLElement);
 const filePage = elementById("filePage", HTMLElement);
+const inviteGate = elementById("inviteGate", HTMLElement);
+const inviteGateTitle = elementById("inviteGateTitle", HTMLElement);
+const inviteGateMessage = elementById("inviteGateMessage", HTMLElement);
+const uploadWorkspace = elementById("uploadWorkspace", HTMLElement);
+const invitationLabel = elementById("invitationLabel", HTMLElement);
+const invitationRemaining = elementById("invitationRemaining", HTMLElement);
 const capacityText = elementById("capacityText", HTMLElement);
 const capacityStatus = elementById("capacityStatus", HTMLElement);
 const capacityTrack = elementById("capacityTrack", HTMLElement);
@@ -156,6 +176,24 @@ function parseStorage(value: unknown): StorageUsage {
     maxBytes: requiredNumber(value, "maxBytes"),
     availableBytes: requiredNumber(value, "availableBytes"),
     usageRatio: requiredNumber(value, "usageRatio"),
+  };
+}
+
+function parseInvitationSession(value: unknown): InvitationSessionInfo {
+  if (!isRecord(value) || value.authenticated !== true) {
+    throw new Error("Invalid invitation session response.");
+  }
+  return {
+    authenticated: true,
+    label: requiredString(value, "label"),
+    maxFiles: requiredNumber(value, "maxFiles"),
+    maxBytes: requiredNumber(value, "maxBytes"),
+    usedFiles: requiredNumber(value, "usedFiles"),
+    usedBytes: requiredNumber(value, "usedBytes"),
+    remainingFiles: requiredNumber(value, "remainingFiles"),
+    remainingBytes: requiredNumber(value, "remainingBytes"),
+    expiresAt: requiredString(value, "expiresAt"),
+    sessionExpiresAt: requiredString(value, "sessionExpiresAt"),
   };
 }
 
@@ -285,6 +323,7 @@ class TurnstileTokenManager {
 
     this.widgetId = api.render(turnstileContainer, {
       sitekey: siteKey,
+      action: "upload",
       theme: "dark",
       size: "flexible",
       callback: (token) => this.acceptToken(token),
@@ -307,7 +346,6 @@ class TurnstileTokenManager {
     if (this.token !== null) {
       const token = this.token;
       this.token = null;
-      this.reset();
       return token;
     }
     return new Promise<string>((resolve, reject) => {
@@ -340,10 +378,9 @@ class TurnstileTokenManager {
       return;
     }
     waiter.resolve(token);
-    this.reset();
   }
 
-  private reset(): void {
+  refresh(): void {
     const widgetId = this.widgetId;
     if (widgetId !== null) {
       window.setTimeout(() => window.turnstile?.reset(widgetId), 0);
@@ -578,18 +615,23 @@ async function processTask(task: UploadTask): Promise<void> {
     task.message = "正在檢查配額與保留空間。";
     renderQueue();
 
-    const reserveResponse = await fetch("/api/uploads/reserve", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      signal: task.abortController.signal,
-      body: JSON.stringify({
-        filename: task.file.name,
-        sizeBytes: task.file.size,
-        declaredMime: task.file.type || null,
-        turnstileToken,
-        accessCode: config?.accessCodeRequired ? accessCodeInput.value : null,
-      }),
-    });
+    let reserveResponse: Response;
+    try {
+      reserveResponse = await fetch("/api/uploads/reserve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: task.abortController.signal,
+        body: JSON.stringify({
+          filename: task.file.name,
+          sizeBytes: task.file.size,
+          declaredMime: task.file.type || null,
+          turnstileToken,
+          accessCode: config?.accessCodeRequired ? accessCodeInput.value : null,
+        }),
+      });
+    } finally {
+      turnstile.refresh();
+    }
     if (!reserveResponse.ok) {
       throw new Error(await responseError(reserveResponse));
     }
@@ -708,6 +750,74 @@ async function loadConfig(): Promise<void> {
     showToast("管理者目前暫停上傳。", "error");
   }
   await turnstile.initialize(config.turnstileSiteKey);
+}
+
+function inviteTokenFromFragment(): string | null {
+  if (!window.location.hash.startsWith("#")) {
+    return null;
+  }
+  const token = new URLSearchParams(window.location.hash.slice(1)).get("token");
+  return token === null || token.length === 0 ? null : token;
+}
+
+async function exchangeInvitation(token: string): Promise<InvitationSessionInfo> {
+  const response = await fetch("/api/invitations/exchange", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token }),
+  });
+  if (!response.ok) {
+    throw new Error(await responseError(response));
+  }
+  const payload: unknown = await response.json();
+  return parseInvitationSession(payload);
+}
+
+async function loadInvitationSession(): Promise<InvitationSessionInfo | null> {
+  const response = await fetch("/api/invitations/session");
+  if (response.status === 401) {
+    return null;
+  }
+  if (!response.ok) {
+    throw new Error(await responseError(response));
+  }
+  const payload: unknown = await response.json();
+  return parseInvitationSession(payload);
+}
+
+function activateInvitation(session: InvitationSessionInfo): void {
+  invitationLabel.textContent = session.label;
+  invitationRemaining.textContent =
+    `剩餘 ${session.remainingFiles} 個檔案、${formatBytes(session.remainingBytes)}；` +
+    `邀請於 ${formatDate(session.expiresAt)} 到期。`;
+  inviteGate.classList.add("is-hidden");
+  uploadWorkspace.classList.remove("is-hidden");
+}
+
+async function initializeUploadPage(): Promise<void> {
+  const invitationToken = inviteTokenFromFragment();
+  let session: InvitationSessionInfo | null;
+  if (invitationToken !== null) {
+    inviteGateTitle.textContent = "正在驗證邀請";
+    inviteGateMessage.textContent = "請稍候，正在建立安全的短期上傳 session。";
+    try {
+      session = await exchangeInvitation(invitationToken);
+    } finally {
+      window.history.replaceState(null, "", window.location.pathname);
+    }
+  } else {
+    session = await loadInvitationSession();
+  }
+
+  if (session === null) {
+    inviteGateTitle.textContent = "需要有效的上傳邀請";
+    inviteGateMessage.textContent =
+      "請使用分享者提供的完整邀請連結，或掃描對方提供的 NFC／QR Code。";
+    return;
+  }
+
+  activateInvitation(session);
+  await Promise.all([loadStorage(), loadConfig()]);
 }
 
 function mediaElement(file: PublicFile): HTMLElement | null {
@@ -871,8 +981,9 @@ const filePageMatch = /^\/file\/([^/]+)$/u.exec(window.location.pathname);
 if (filePageMatch?.[1] !== undefined) {
   void loadFilePage(decodeURIComponent(filePageMatch[1]));
 } else {
-  void Promise.all([loadStorage(), loadConfig()]).catch((error: unknown) => {
-    showToast(error instanceof Error ? error.message : "初始化失敗。", "error");
+  void initializeUploadPage().catch((error: unknown) => {
+    inviteGateTitle.textContent = "邀請驗證失敗";
+    inviteGateMessage.textContent = error instanceof Error ? error.message : "請重新取得邀請連結。";
   });
 }
 

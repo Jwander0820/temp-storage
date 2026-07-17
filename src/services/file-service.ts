@@ -18,7 +18,7 @@ export function toPublicFile(file: FileRecord, config: AppConfig): PublicFile {
     detectedMime: file.detected_mime,
     previewPolicy: file.preview_policy,
     previewUrl: file.preview_policy === "inline" ? `${config.cdnOrigin}/p/${file.id}` : null,
-    downloadUrl: `${config.uploadOrigin}/d/${file.id}`,
+    downloadUrl: `${config.cdnOrigin}/d/${file.id}`,
     createdAt: new Date(file.created_at * 1000).toISOString(),
     expiresAt: new Date(file.expires_at * 1000).toISOString(),
   };

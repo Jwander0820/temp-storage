@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
 import { reserveQuotaAndCreateRecords } from "../src/repositories/quota-repository";
-import { resetState } from "./helpers";
+import { createTestInvitation, resetState, TEST_INVITATION_ID } from "./helpers";
 
 function reservation(sizeBytes: number, suffix: string) {
   const now = 1_800_000_000;
@@ -16,6 +16,7 @@ function reservation(sizeBytes: number, suffix: string) {
     sizeBytes,
     uploaderHash: `uploader-${suffix}`,
     previousUploaderHash: `previous-${suffix}`,
+    invitationId: TEST_INVITATION_ID,
     createdAt: now,
     reservationExpiresAt: now + 900,
     fileExpiresAt: now + 2_592_000,
@@ -25,6 +26,7 @@ function reservation(sizeBytes: number, suffix: string) {
 describe("quota reservation", () => {
   beforeEach(async () => {
     await resetState(100);
+    await createTestInvitation({ now: 1_800_000_000, maxBytes: 1000 });
   });
 
   it("allows an exact-capacity reservation", async () => {

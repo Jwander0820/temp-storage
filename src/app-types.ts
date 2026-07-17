@@ -4,5 +4,6 @@ export interface AppEnv {
   Bindings: Bindings;
   Variables: {
     requestId: string;
+    uploadInvitationId: string;
   };
 }

@@ -2,11 +2,20 @@ import { Hono } from "hono";
 import type { AppEnv } from "../app-types";
 import type { FileStatus } from "../domain/file";
 import { DomainError } from "../domain/errors";
+import { getConfig } from "../env";
 import { adminAuthMiddleware } from "../middleware/admin-auth";
 import { listAdminFiles } from "../repositories/file-repository";
+import {
+  createInvitation,
+  invitationStatus,
+  listInvitations,
+  revokeInvitation,
+} from "../repositories/invitation-repository";
 import { getStorageUsage } from "../repositories/quota-repository";
 import { reconcileStorage, runCleanup } from "../services/cleanup-service";
 import { deleteFileAsAdmin } from "../services/deletion-service";
+import { createInvitationTokenHash } from "../services/invitation-service";
+import { randomToken } from "../utils/hash";
 
 const FILE_STATUSES = new Set<FileStatus>([
   "reserved",
@@ -17,6 +26,52 @@ const FILE_STATUSES = new Set<FileStatus>([
   "rejected",
   "failed",
 ]);
+
+const DEFAULT_INVITATION_TTL_SECONDS = 7 * 24 * 60 * 60;
+const MAX_INVITATION_TTL_SECONDS = 30 * 24 * 60 * 60;
+const DEFAULT_INVITATION_FILES = 10;
+const MAX_INVITATION_FILES = 100;
+const DEFAULT_INVITATION_BYTES = 300 * 1024 * 1024;
+
+interface CreateInvitationRequest {
+  readonly label: string;
+  readonly expiresInSeconds: number;
+  readonly maxFiles: number;
+  readonly maxBytes: number;
+}
+
+function parseCreateInvitation(value: unknown, maxStorageBytes: number): CreateInvitationRequest {
+  if (typeof value !== "object" || value === null) {
+    throw new DomainError("INVALID_REQUEST", 400, "邀請資料格式不正確。");
+  }
+  const record = value as Record<string, unknown>;
+  const label = record.label;
+  const expiresInSeconds = record.expiresInSeconds ?? DEFAULT_INVITATION_TTL_SECONDS;
+  const maxFiles = record.maxFiles ?? DEFAULT_INVITATION_FILES;
+  const maxBytes = record.maxBytes ?? DEFAULT_INVITATION_BYTES;
+  if (
+    typeof label !== "string" ||
+    label.trim().length === 0 ||
+    label.trim().length > 80 ||
+    !Number.isSafeInteger(expiresInSeconds) ||
+    (expiresInSeconds as number) < 300 ||
+    (expiresInSeconds as number) > MAX_INVITATION_TTL_SECONDS ||
+    !Number.isSafeInteger(maxFiles) ||
+    (maxFiles as number) < 1 ||
+    (maxFiles as number) > MAX_INVITATION_FILES ||
+    !Number.isSafeInteger(maxBytes) ||
+    (maxBytes as number) < 1 ||
+    (maxBytes as number) > maxStorageBytes
+  ) {
+    throw new DomainError("INVALID_REQUEST", 400, "邀請限制格式不正確。");
+  }
+  return {
+    label: label.trim(),
+    expiresInSeconds: expiresInSeconds as number,
+    maxFiles: maxFiles as number,
+    maxBytes: maxBytes as number,
+  };
+}
 
 function parseOptionalEpoch(value: string | undefined): number | null {
   if (value === undefined) {
@@ -128,6 +183,67 @@ adminRoutes.get("/files", async (context) => {
     })),
     nextCursor: hasMore && last !== undefined ? encodeCursor(last.created_at, last.id) : null,
   });
+});
+
+adminRoutes.post("/invitations", async (context) => {
+  const config = getConfig(context.env);
+  const input = parseCreateInvitation(await context.req.json<unknown>(), config.maxStorageBytes);
+  const now = Math.floor(Date.now() / 1000);
+  const token = randomToken(32);
+  const id = randomToken(16);
+  await createInvitation(context.env.DB, {
+    id,
+    tokenHash: await createInvitationTokenHash(context.env.DELETE_TOKEN_PEPPER, token),
+    label: input.label,
+    maxFiles: input.maxFiles,
+    maxBytes: input.maxBytes,
+    createdAt: now,
+    expiresAt: now + input.expiresInSeconds,
+  });
+
+  return context.json(
+    {
+      id,
+      label: input.label,
+      inviteUrl: `${config.uploadOrigin}/invite#token=${token}`,
+      token,
+      maxFiles: input.maxFiles,
+      maxBytes: input.maxBytes,
+      expiresAt: new Date((now + input.expiresInSeconds) * 1000).toISOString(),
+    },
+    201,
+  );
+});
+
+adminRoutes.get("/invitations", async (context) => {
+  const now = Math.floor(Date.now() / 1000);
+  const invitations = await listInvitations(context.env.DB);
+  return context.json({
+    invitations: invitations.map((invitation) => ({
+      id: invitation.id,
+      label: invitation.label,
+      status: invitationStatus(invitation, now),
+      maxFiles: invitation.max_files,
+      maxBytes: invitation.max_bytes,
+      usedFiles: invitation.used_files,
+      usedBytes: invitation.used_bytes,
+      createdAt: new Date(invitation.created_at * 1000).toISOString(),
+      expiresAt: new Date(invitation.expires_at * 1000).toISOString(),
+      revokedAt:
+        invitation.revoked_at === null
+          ? null
+          : new Date(invitation.revoked_at * 1000).toISOString(),
+    })),
+  });
+});
+
+adminRoutes.delete("/invitations/:invitationId", async (context) => {
+  await revokeInvitation(
+    context.env.DB,
+    context.req.param("invitationId"),
+    Math.floor(Date.now() / 1000),
+  );
+  return context.body(null, 204);
 });
 
 adminRoutes.post("/cleanup", async (context) => {

@@ -1,10 +1,19 @@
-import type { Bindings } from "../bindings";
 import { DomainError } from "../domain/errors";
 import { timingSafeStringEqual } from "../utils/hash";
+
+interface TurnstileBindings {
+  readonly TURNSTILE_SECRET_KEY: string;
+  readonly UPLOAD_ORIGIN: string;
+}
+
+interface AccessCodeBindings {
+  readonly UPLOAD_ACCESS_CODE?: string;
+}
 
 interface TurnstileResult {
   readonly success: boolean;
   readonly hostname?: string;
+  readonly action?: string;
   readonly "error-codes"?: string[];
 }
 
@@ -18,9 +27,10 @@ function isTurnstileResult(value: unknown): value is TurnstileResult {
 }
 
 export async function verifyTurnstile(
-  env: Bindings,
+  env: TurnstileBindings,
   token: string,
   remoteIp: string,
+  requestId?: string,
 ): Promise<void> {
   if (token.length === 0 || token.length > 2048) {
     throw new DomainError("TURNSTILE_FAILED", 403, "人機驗證失敗，請重新操作。");
@@ -43,13 +53,30 @@ export async function verifyTurnstile(
   }
 
   const payload: unknown = await response.json<unknown>();
-  if (!response.ok || !isTurnstileResult(payload) || !payload.success) {
+  const expectedHostname = new URL(env.UPLOAD_ORIGIN).hostname;
+  if (
+    !response.ok ||
+    !isTurnstileResult(payload) ||
+    !payload.success ||
+    payload.hostname !== expectedHostname ||
+    payload.action !== "upload"
+  ) {
+    console.warn(
+      JSON.stringify({
+        level: "warn",
+        event: "turnstile.rejected",
+        errorCodes: isTurnstileResult(payload) ? (payload["error-codes"] ?? []) : [],
+        hostname: isTurnstileResult(payload) ? (payload.hostname ?? null) : null,
+        action: isTurnstileResult(payload) ? (payload.action ?? null) : null,
+        requestId: requestId ?? null,
+      }),
+    );
     throw new DomainError("TURNSTILE_FAILED", 403, "人機驗證失敗，請重新操作。");
   }
 }
 
 export async function verifyOptionalAccessCode(
-  env: Bindings,
+  env: AccessCodeBindings,
   providedCode: string | null,
 ): Promise<void> {
   const expectedCode = env.UPLOAD_ACCESS_CODE?.trim();

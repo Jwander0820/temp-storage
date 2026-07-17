@@ -180,6 +180,51 @@ button:disabled {
   backdrop-filter: blur(18px);
 }
 
+.invitation-gate {
+  max-width: 720px;
+  padding: clamp(24px, 5vw, 42px);
+  border: 1px solid rgba(121, 161, 255, 0.32);
+  border-radius: 24px;
+  background: rgba(18, 34, 56, 0.62);
+  box-shadow: var(--shadow);
+}
+
+.invitation-gate h2 {
+  margin: 12px 0 10px;
+  font-family: "Segoe UI Variable Display", "Noto Sans TC", sans-serif;
+  font-size: clamp(1.6rem, 4vw, 2.5rem);
+  font-weight: 560;
+  letter-spacing: -0.04em;
+}
+
+.invitation-gate p:last-child,
+.invitation-summary p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.invitation-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 18px 22px;
+  border: 1px solid rgba(92, 211, 154, 0.28);
+  border-radius: 18px;
+  background: rgba(9, 28, 25, 0.52);
+}
+
+.invitation-summary strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 1.05rem;
+}
+
+.invitation-summary p {
+  text-align: right;
+}
+
 .capacity-card,
 .drop-zone,
 .queue {
@@ -634,6 +679,15 @@ button:disabled {
 
   .drop-zone {
     grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .invitation-summary {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .invitation-summary p {
+    text-align: left;
   }
 
   .primary-button {

@@ -29,10 +29,10 @@
       <div id="uploadPage">
         <section class="hero" aria-labelledby="hero-title">
           <div class="hero__copy">
-            <p class="eyebrow">快速傳檔與分享</p>
+            <p class="eyebrow">邀請制傳檔與分享</p>
             <h1 id="hero-title">Jwander 暫存區</h1>
             <p class="hero__lede">
-              上傳檔案後即可複製連結分享給朋友。檔案最多保留 30 天，請在到期前下載。
+              透過有效邀請連結進入上傳空間。檔案最多保留 30 天，請在到期前下載。
             </p>
           </div>
 
@@ -45,7 +45,22 @@
           </div>
         </section>
 
-        <section class="workspace" aria-labelledby="upload-title">
+        <section id="inviteGate" class="invitation-gate" aria-live="polite">
+          <p class="label">Invitation required</p>
+          <h2 id="inviteGateTitle">需要有效的上傳邀請</h2>
+          <p id="inviteGateMessage">
+            請使用分享者提供的完整邀請連結，或掃描對方提供的 NFC／QR Code。
+          </p>
+        </section>
+
+        <section id="uploadWorkspace" class="workspace is-hidden" aria-labelledby="upload-title">
+          <div class="invitation-summary">
+            <div>
+              <p class="label">目前邀請</p>
+              <strong id="invitationLabel">讀取中</strong>
+            </div>
+            <p id="invitationRemaining">正在確認邀請額度。</p>
+          </div>
           <div class="capacity-card">
             <div class="capacity-card__heading">
               <div>

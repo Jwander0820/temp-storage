@@ -40,6 +40,7 @@ export async function claimUpload(
   database: D1Database,
   uploadId: string,
   now: number,
+  invitationId: string,
 ): Promise<UploadRecord> {
   const result = await database
     .prepare(
@@ -47,15 +48,19 @@ export async function claimUpload(
        SET status = 'uploading'
        WHERE id = (
          SELECT file_id
-         FROM upload_reservations
-         WHERE id = ?1
-           AND status = 'reserved'
-           AND expires_at > ?2
-           AND quota_released_at IS NULL
+         FROM upload_reservations reservation
+         JOIN upload_invitations invitation ON invitation.id = reservation.invitation_id
+         WHERE reservation.id = ?1
+           AND reservation.status = 'reserved'
+           AND reservation.expires_at > ?2
+           AND reservation.quota_released_at IS NULL
+           AND reservation.invitation_id = ?3
+           AND invitation.status = 'active'
+           AND invitation.expires_at > ?2
        )
        AND status = 'reserved'`,
     )
-    .bind(uploadId, now)
+    .bind(uploadId, now, invitationId)
     .run();
 
   if (changes(result) === 1) {
@@ -68,6 +73,9 @@ export async function claimUpload(
 
   const existing = await getUploadRecord(database, uploadId);
   if (existing === null) {
+    throw new DomainError("RESERVATION_NOT_FOUND", 404, "找不到這筆上傳預留。");
+  }
+  if (existing.invitation_id !== invitationId) {
     throw new DomainError("RESERVATION_NOT_FOUND", 404, "找不到這筆上傳預留。");
   }
   if (existing.reservation_expires_at <= now || existing.reservation_status === "expired") {

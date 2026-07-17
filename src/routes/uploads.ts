@@ -3,6 +3,7 @@ import type { AppEnv } from "../app-types";
 import { DomainError } from "../domain/errors";
 import type { ReserveUploadInput } from "../domain/upload";
 import { getConfig } from "../env";
+import { uploadSessionMiddleware } from "../middleware/upload-session";
 import { reserveQuotaAndCreateRecords } from "../repositories/quota-repository";
 import {
   claimUpload,
@@ -63,6 +64,7 @@ function isByteStream(value: unknown): value is ReadableStream<Uint8Array> {
 }
 
 export const uploadRoutes = new Hono<AppEnv>();
+uploadRoutes.use("/uploads/*", uploadSessionMiddleware);
 
 uploadRoutes.post("/uploads/reserve", async (context) => {
   const config = getConfig(context.env);
@@ -89,7 +91,12 @@ uploadRoutes.post("/uploads/reserve", async (context) => {
 
   await verifyOptionalAccessCode(context.env, input.accessCode);
   const remoteIp = context.req.header("CF-Connecting-IP") ?? "local-development";
-  await verifyTurnstile(context.env, input.turnstileToken, remoteIp);
+  await verifyTurnstile(
+    context.env,
+    input.turnstileToken,
+    remoteIp,
+    context.get("requestId"),
+  );
 
   const now = Math.floor(Date.now() / 1000);
   const previousDay = now - 86400;
@@ -111,6 +118,7 @@ uploadRoutes.post("/uploads/reserve", async (context) => {
     sizeBytes: input.sizeBytes,
     uploaderHash,
     previousUploaderHash,
+    invitationId: context.get("uploadInvitationId"),
     createdAt: now,
     reservationExpiresAt: now + config.reservationTtlSeconds,
     fileExpiresAt: now + config.fileRetentionSeconds,
@@ -139,6 +147,9 @@ uploadRoutes.put("/uploads/:uploadId", async (context) => {
   if (initial === null) {
     throw new DomainError("RESERVATION_NOT_FOUND", 404, "找不到這筆上傳預留。");
   }
+  if (initial.invitation_id !== context.get("uploadInvitationId")) {
+    throw new DomainError("RESERVATION_NOT_FOUND", 404, "找不到這筆上傳預留。");
+  }
 
   const contentLengthText = context.req.header("Content-Length");
   const contentLength = contentLengthText === undefined ? Number.NaN : Number(contentLengthText);
@@ -154,7 +165,12 @@ uploadRoutes.put("/uploads/:uploadId", async (context) => {
   }
 
   const now = Math.floor(Date.now() / 1000);
-  const claimed = await claimUpload(context.env.DB, uploadId, now);
+  const claimed = await claimUpload(
+    context.env.DB,
+    uploadId,
+    now,
+    context.get("uploadInvitationId"),
+  );
   let objectStored = false;
 
   try {

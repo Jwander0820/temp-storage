@@ -5,6 +5,7 @@ import {
   markMissingObjectDeleted,
   purgeDeletedMetadata,
 } from "../repositories/file-repository";
+import { purgeExpiredSessions } from "../repositories/invitation-repository";
 import { listExpiredReservations, releaseReservation } from "../repositories/upload-repository";
 import { deleteFileAsAdmin } from "./deletion-service";
 
@@ -14,6 +15,7 @@ export interface CleanupResult {
   readonly failedCount: number;
   readonly expiredReservations: number;
   readonly purgedMetadata: number;
+  readonly purgedInvitationSessions: number;
 }
 
 export interface ReconcileResult {
@@ -80,7 +82,10 @@ export async function runCleanup(
     }
   }
 
-  const purgedMetadata = await purgeDeletedMetadata(env.DB, now - 604800);
+  const [purgedMetadata, purgedInvitationSessions] = await Promise.all([
+    purgeDeletedMetadata(env.DB, now - 604800),
+    purgeExpiredSessions(env.DB, now),
+  ]);
   const status = failedCount === 0 ? "completed" : deletedCount > 0 ? "partial" : "failed";
   await env.DB.prepare(
     `UPDATE cleanup_runs
@@ -104,6 +109,7 @@ export async function runCleanup(
       failedCount,
       expiredReservations,
       purgedMetadata,
+      purgedInvitationSessions,
     }),
   );
 
@@ -113,6 +119,7 @@ export async function runCleanup(
     failedCount,
     expiredReservations,
     purgedMetadata,
+    purgedInvitationSessions,
   };
 }
 

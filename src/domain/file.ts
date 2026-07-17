@@ -19,6 +19,7 @@ export interface FileRecord {
   readonly delete_token_hash: string | null;
   readonly uploader_hash: string | null;
   readonly sha256: string | null;
+  readonly invitation_id: string | null;
 }
 
 export interface PublicFile {

@@ -12,6 +12,7 @@ export interface ReservationWrite {
   readonly sizeBytes: number;
   readonly uploaderHash: string;
   readonly previousUploaderHash: string;
+  readonly invitationId: string;
   readonly createdAt: number;
   readonly reservationExpiresAt: number;
   readonly fileExpiresAt: number;
@@ -52,26 +53,45 @@ export async function reserveQuotaAndCreateRecords(
   const results = await database.batch([
     database
       .prepare(
-        `INSERT INTO rate_limit_events (id, uploader_hash, size_bytes, created_at)
-         SELECT ?1, ?2, ?3, ?4
+        `INSERT INTO rate_limit_events (
+           id, uploader_hash, size_bytes, created_at, invitation_id
+         )
+         SELECT ?1, ?2, ?3, ?4, ?5
          WHERE (
            SELECT COUNT(*)
            FROM rate_limit_events
-           WHERE uploader_hash IN (?2, ?5)
-             AND created_at >= ?6
+           WHERE uploader_hash IN (?2, ?6)
+             AND created_at >= ?7
          ) < ${TEN_MINUTE_RESERVATION_LIMIT}
          AND COALESCE((
            SELECT SUM(size_bytes)
            FROM rate_limit_events
-           WHERE uploader_hash IN (?2, ?5)
-             AND created_at >= ?7
+           WHERE uploader_hash IN (?2, ?6)
+             AND created_at >= ?8
          ), 0) + ?3 <= ${HOURLY_BYTE_LIMIT}
          AND COALESCE((
            SELECT SUM(size_bytes)
            FROM rate_limit_events
-           WHERE uploader_hash IN (?2, ?5)
-             AND created_at >= ?8
+           WHERE uploader_hash IN (?2, ?6)
+             AND created_at >= ?9
          ), 0) + ?3 <= ${DAILY_BYTE_LIMIT}
+         AND EXISTS (
+           SELECT 1
+           FROM upload_invitations invitation
+           WHERE invitation.id = ?5
+             AND invitation.status = 'active'
+             AND invitation.expires_at > ?4
+             AND (
+               SELECT COUNT(*)
+               FROM rate_limit_events
+               WHERE invitation_id = ?5
+             ) < invitation.max_files
+             AND COALESCE((
+               SELECT SUM(size_bytes)
+               FROM rate_limit_events
+               WHERE invitation_id = ?5
+             ), 0) + ?3 <= invitation.max_bytes
+         )
          AND EXISTS (
            SELECT 1
            FROM storage_usage
@@ -84,6 +104,7 @@ export async function reserveQuotaAndCreateRecords(
         input.uploaderHash,
         input.sizeBytes,
         input.createdAt,
+        input.invitationId,
         input.previousUploaderHash,
         tenMinutesAgo,
         hourAgo,
@@ -93,11 +114,11 @@ export async function reserveQuotaAndCreateRecords(
       .prepare(
         `INSERT INTO files (
            id, object_key, original_name, extension, declared_mime,
-           size_bytes, status, created_at, expires_at, uploader_hash
+           size_bytes, status, created_at, expires_at, uploader_hash, invitation_id
          )
-         SELECT ?1, ?2, ?3, ?4, ?5, ?6, 'reserved', ?7, ?8, ?9
+         SELECT ?1, ?2, ?3, ?4, ?5, ?6, 'reserved', ?7, ?8, ?9, ?10
          WHERE EXISTS (
-           SELECT 1 FROM rate_limit_events WHERE id = ?10
+           SELECT 1 FROM rate_limit_events WHERE id = ?11
          )`,
       )
       .bind(
@@ -110,14 +131,15 @@ export async function reserveQuotaAndCreateRecords(
         input.createdAt,
         input.fileExpiresAt,
         input.uploaderHash,
+        input.invitationId,
         input.eventId,
       ),
     database
       .prepare(
         `INSERT INTO upload_reservations (
-           id, file_id, reserved_bytes, status, created_at, expires_at
+           id, file_id, reserved_bytes, status, created_at, expires_at, invitation_id
          )
-         SELECT ?1, ?2, ?3, 'reserved', ?4, ?5
+         SELECT ?1, ?2, ?3, 'reserved', ?4, ?5, ?6
          WHERE EXISTS (
            SELECT 1 FROM files WHERE id = ?2 AND status = 'reserved'
          )`,
@@ -128,6 +150,7 @@ export async function reserveQuotaAndCreateRecords(
         input.sizeBytes,
         input.createdAt,
         input.reservationExpiresAt,
+        input.invitationId,
       ),
     database
       .prepare(
@@ -156,6 +179,43 @@ export async function reserveQuotaAndCreateRecords(
   const usage = await getStorageUsage(database);
   if (usage.used_bytes + usage.reserved_bytes + input.sizeBytes > usage.max_bytes) {
     throw new DomainError("STORAGE_LIMIT_EXCEEDED", 507, "暫存區容量已滿，請等待舊檔案清除。");
+  }
+
+  const invitation = await database
+    .prepare(
+      `SELECT
+         status,
+         expires_at,
+         max_files,
+         max_bytes,
+         (SELECT COUNT(*) FROM rate_limit_events WHERE invitation_id = ?1) AS used_files,
+         COALESCE((
+           SELECT SUM(size_bytes) FROM rate_limit_events WHERE invitation_id = ?1
+         ), 0) AS used_bytes
+       FROM upload_invitations
+       WHERE id = ?1`,
+    )
+    .bind(input.invitationId)
+    .first<{
+      status: "active" | "revoked";
+      expires_at: number;
+      max_files: number;
+      max_bytes: number;
+      used_files: number;
+      used_bytes: number;
+    }>();
+  if (
+    invitation === null ||
+    invitation.status !== "active" ||
+    invitation.expires_at <= input.createdAt
+  ) {
+    throw new DomainError("INVITATION_INVALID", 403, "邀請已失效，請向分享者取得新連結。");
+  }
+  if (
+    invitation.used_files >= invitation.max_files ||
+    invitation.used_bytes + input.sizeBytes > invitation.max_bytes
+  ) {
+    throw new DomainError("INVITATION_LIMIT_EXCEEDED", 429, "這份邀請的上傳額度已用完。");
   }
 
   throw new DomainError("RATE_LIMITED", 429, "上傳頻率過高，請稍後再試。");

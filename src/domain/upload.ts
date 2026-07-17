@@ -8,6 +8,7 @@ export interface UploadReservation {
   readonly created_at: number;
   readonly expires_at: number;
   readonly quota_released_at: number | null;
+  readonly invitation_id: string | null;
 }
 
 export interface ReserveUploadInput {
