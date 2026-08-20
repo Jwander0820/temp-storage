@@ -1,9 +1,14 @@
+import { limitUploadBatch } from "./upload-limits";
+
 interface PublicConfig {
   readonly maxFileBytes: number;
   readonly fileRetentionSeconds: number;
   readonly uploadsEnabled: boolean;
   readonly turnstileSiteKey: string;
   readonly accessCodeRequired: boolean;
+  readonly maxFilesPerBatch: number;
+  readonly maxParallelUploads: number;
+  readonly sessionTtlSeconds: number;
 }
 
 interface StorageUsage {
@@ -71,8 +76,7 @@ declare global {
   }
 }
 
-type UploadState =
-  "queued" | "reserving" | "uploading" | "complete" | "failed" | "cancelled";
+type UploadState = "queued" | "reserving" | "uploading" | "complete" | "failed" | "cancelled";
 
 interface UploadTask {
   readonly id: string;
@@ -86,7 +90,6 @@ interface UploadTask {
   result: CompletedUpload | null;
 }
 
-const maximumParallelUploads = 2;
 const tasks: UploadTask[] = [];
 let activeUploads = 0;
 let config: PublicConfig | null = null;
@@ -125,6 +128,7 @@ const accessCodeInput = elementById("accessCodeInput", HTMLInputElement);
 const turnstileContainer = elementById("turnstileContainer", HTMLElement);
 const uploadQueue = elementById("uploadQueue", HTMLOListElement);
 const queueCount = elementById("queueCount", HTMLElement);
+const uploadHelp = elementById("upload-help", HTMLElement);
 const toastRegion = elementById("toastRegion", HTMLElement);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -165,6 +169,9 @@ function parseConfig(value: unknown): PublicConfig {
     uploadsEnabled: requiredBoolean(value, "uploadsEnabled"),
     turnstileSiteKey: requiredString(value, "turnstileSiteKey"),
     accessCodeRequired: requiredBoolean(value, "accessCodeRequired"),
+    maxFilesPerBatch: requiredNumber(value, "maxFilesPerBatch"),
+    maxParallelUploads: requiredNumber(value, "maxParallelUploads"),
+    sessionTtlSeconds: requiredNumber(value, "sessionTtlSeconds"),
   };
 }
 
@@ -264,6 +271,16 @@ function formatDate(value: string): string {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(value));
+}
+
+function formatDuration(seconds: number): string {
+  if (seconds % 86_400 === 0) {
+    return `${seconds / 86_400} 天`;
+  }
+  if (seconds % 3_600 === 0) {
+    return `${seconds / 3_600} 小時`;
+  }
+  return `${Math.max(1, Math.round(seconds / 60))} 分鐘`;
 }
 
 function showToast(message: string, kind: "success" | "error" = "success"): void {
@@ -562,7 +579,15 @@ function enqueueFiles(files: Iterable<File>): void {
     return;
   }
 
-  for (const file of files) {
+  const batch = limitUploadBatch(files, config.maxFilesPerBatch);
+  if (batch.omittedCount > 0) {
+    showToast(
+      `單次最多上傳 ${config.maxFilesPerBatch} 個檔案；已略過其餘 ${batch.omittedCount} 個。`,
+      "error",
+    );
+  }
+
+  for (const file of batch.files) {
     if (file.size === 0) {
       showToast(`${file.name} 是空檔案，已略過。`, "error");
       continue;
@@ -588,6 +613,7 @@ function enqueueFiles(files: Iterable<File>): void {
 }
 
 function pumpQueue(): void {
+  const maximumParallelUploads = config?.maxParallelUploads ?? 1;
   while (activeUploads < maximumParallelUploads) {
     const task = tasks.find((candidate) => candidate.state === "queued" && !candidate.cancelled);
     if (task === undefined) {
@@ -726,6 +752,10 @@ async function loadConfig(): Promise<void> {
   }
   const payload: unknown = await response.json();
   config = parseConfig(payload);
+  uploadHelp.textContent =
+    `單次最多加入 ${config.maxFilesPerBatch} 個檔案、` +
+    `單一檔案上限 ${formatBytes(config.maxFileBytes)}；` +
+    `同時處理 ${config.maxParallelUploads} 個上傳。完成後可直接複製分享或下載連結。`;
   if (!config.uploadsEnabled) {
     dropZone.classList.add("is-disabled");
     chooseButton.disabled = true;
@@ -789,7 +819,8 @@ async function initializeUploadPage(): Promise<void> {
     window.history.replaceState(null, "", window.location.pathname);
     inviteGateTitle.textContent = "完成一次安全驗證";
     inviteGateMessage.textContent =
-      "驗證成功後會建立最長 12 小時的上傳 session，期間不必為每個檔案重複驗證。";
+      `驗證成功後會建立最長 ${formatDuration(config?.sessionTtlSeconds ?? 0)}的上傳 session，` +
+      "期間不必為每個檔案重複驗證。";
     inviteVerification.classList.remove("is-hidden");
     if (config?.accessCodeRequired) {
       accessCodeField.classList.remove("is-hidden");

@@ -8,12 +8,14 @@ export async function storeObject(
   file: FileRecord,
   body: ReadableStream,
   detectedMime: string,
+  previewCacheSeconds: number,
 ): Promise<R2Object> {
   const stored = await bucket.put(file.object_key, body, {
     onlyIf: { etagDoesNotMatch: "*" },
     httpMetadata: {
       contentType: detectedMime,
-      cacheControl: "public, max-age=3600",
+      cacheControl:
+        previewCacheSeconds > 0 ? `public, max-age=${previewCacheSeconds}` : "private, no-store",
     },
     customMetadata: {
       fileId: file.id,
@@ -32,6 +34,7 @@ function createMediaHeaders(
   mode: "preview" | "download",
   range: ByteRange | null,
   etag: string | null,
+  previewCacheSeconds: number,
 ): Headers {
   const totalBytes = file.size_bytes;
   const headers = new Headers({
@@ -59,7 +62,12 @@ function createMediaHeaders(
   }
 
   if (mode === "preview") {
-    headers.set("Cache-Control", "public, max-age=3600");
+    headers.set(
+      "Cache-Control",
+      range === null && previewCacheSeconds > 0
+        ? `public, max-age=${previewCacheSeconds}`
+        : "private, no-store",
+    );
     headers.set("Content-Security-Policy", "default-src 'none'; sandbox");
     headers.set("Cross-Origin-Resource-Policy", "cross-origin");
   } else {
@@ -74,6 +82,7 @@ export async function serveStoredFile(
   bucket: R2Bucket,
   file: FileRecord,
   mode: "preview" | "download",
+  previewCacheSeconds: number,
 ): Promise<Response> {
   const rangeHeader = request.headers.get("Range");
   let range: ByteRange | null = null;
@@ -86,6 +95,7 @@ export async function serveStoredFile(
           status: 416,
           headers: {
             "Accept-Ranges": "bytes",
+            "Cache-Control": "private, no-store",
             "Content-Range": `bytes */${file.size_bytes}`,
             "X-Content-Type-Options": "nosniff",
           },
@@ -102,7 +112,7 @@ export async function serveStoredFile(
     }
     return new Response(null, {
       status: range === null ? 200 : 206,
-      headers: createMediaHeaders(file, mode, range, object.httpEtag),
+      headers: createMediaHeaders(file, mode, range, object.httpEtag, previewCacheSeconds),
     });
   }
 
@@ -119,6 +129,6 @@ export async function serveStoredFile(
 
   return new Response(object.body, {
     status: range === null ? 200 : 206,
-    headers: createMediaHeaders(file, mode, range, object.httpEtag),
+    headers: createMediaHeaders(file, mode, range, object.httpEtag, previewCacheSeconds),
   });
 }

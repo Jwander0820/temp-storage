@@ -1,7 +1,12 @@
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
 import { reserveQuotaAndCreateRecords } from "../src/repositories/quota-repository";
-import { createTestInvitation, resetState, TEST_INVITATION_ID } from "./helpers";
+import {
+  createTestInvitation,
+  resetState,
+  TEST_INVITATION_ID,
+  TEST_UPLOAD_RATE_LIMITS,
+} from "./helpers";
 
 function reservation(sizeBytes: number, suffix: string) {
   const now = 1_800_000_000;
@@ -30,7 +35,7 @@ describe("quota reservation", () => {
   });
 
   it("allows an exact-capacity reservation", async () => {
-    await reserveQuotaAndCreateRecords(env.DB, reservation(100, "exact"));
+    await reserveQuotaAndCreateRecords(env.DB, reservation(100, "exact"), TEST_UPLOAD_RATE_LIMITS);
 
     const usage = await env.DB.prepare(
       "SELECT used_bytes, reserved_bytes FROM storage_usage WHERE id = 1",
@@ -40,7 +45,7 @@ describe("quota reservation", () => {
 
   it("rejects a reservation that is one byte over capacity", async () => {
     await expect(
-      reserveQuotaAndCreateRecords(env.DB, reservation(101, "over")),
+      reserveQuotaAndCreateRecords(env.DB, reservation(101, "over"), TEST_UPLOAD_RATE_LIMITS),
     ).rejects.toMatchObject({
       code: "STORAGE_LIMIT_EXCEEDED",
       status: 507,
@@ -49,8 +54,8 @@ describe("quota reservation", () => {
 
   it("serializes concurrent reservations without exceeding capacity", async () => {
     const results = await Promise.allSettled([
-      reserveQuotaAndCreateRecords(env.DB, reservation(60, "a")),
-      reserveQuotaAndCreateRecords(env.DB, reservation(60, "b")),
+      reserveQuotaAndCreateRecords(env.DB, reservation(60, "a"), TEST_UPLOAD_RATE_LIMITS),
+      reserveQuotaAndCreateRecords(env.DB, reservation(60, "b"), TEST_UPLOAD_RATE_LIMITS),
     ]);
 
     expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
@@ -58,5 +63,25 @@ describe("quota reservation", () => {
       "SELECT reserved_bytes FROM storage_usage WHERE id = 1",
     ).first<{ reserved_bytes: number }>();
     expect(usage?.reserved_bytes).toBe(60);
+  });
+
+  it("uses the configured reservation count limit", async () => {
+    const strictLimits = { ...TEST_UPLOAD_RATE_LIMITS, reservationLimit: 1 };
+    const first = {
+      ...reservation(1, "configured-a"),
+      uploaderHash: "configured-uploader",
+      previousUploaderHash: "configured-previous",
+    };
+    const second = {
+      ...reservation(1, "configured-b"),
+      uploaderHash: "configured-uploader",
+      previousUploaderHash: "configured-previous",
+    };
+
+    await reserveQuotaAndCreateRecords(env.DB, first, strictLimits);
+    await expect(reserveQuotaAndCreateRecords(env.DB, second, strictLimits)).rejects.toMatchObject({
+      code: "RATE_LIMITED",
+      status: 429,
+    });
   });
 });

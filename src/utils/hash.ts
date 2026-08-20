@@ -30,6 +30,10 @@ export function createFileId(): string {
   return randomToken(16);
 }
 
+export function isFileId(value: string): boolean {
+  return /^[A-Za-z0-9_-]{22}$/u.test(value);
+}
+
 export function createDeleteToken(): string {
   return randomToken(32);
 }

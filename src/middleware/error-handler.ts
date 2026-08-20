@@ -6,6 +6,7 @@ type AppContext = Context<AppEnv>;
 
 export function handleError(error: Error, context: AppContext): Response {
   const requestId = context.get("requestId");
+  context.header("Cache-Control", "private, no-store");
 
   if (error instanceof DomainError) {
     if (error.status >= 500) {

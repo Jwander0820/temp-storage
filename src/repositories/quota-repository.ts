@@ -1,4 +1,4 @@
-import type { StorageUsage } from "../domain/quota";
+import type { StorageUsage, UploadRateLimits } from "../domain/quota";
 import { DomainError } from "../domain/errors";
 
 export interface ReservationWrite {
@@ -17,10 +17,6 @@ export interface ReservationWrite {
   readonly reservationExpiresAt: number;
   readonly fileExpiresAt: number;
 }
-
-const TEN_MINUTE_RESERVATION_LIMIT = 10;
-const HOURLY_BYTE_LIMIT = 100 * 1024 * 1024;
-const DAILY_BYTE_LIMIT = 300 * 1024 * 1024;
 
 function changes(result: D1Result): number {
   const value = result.meta.changes;
@@ -45,10 +41,11 @@ export async function getStorageUsage(database: D1Database): Promise<StorageUsag
 export async function reserveQuotaAndCreateRecords(
   database: D1Database,
   input: ReservationWrite,
+  limits: UploadRateLimits,
 ): Promise<void> {
-  const tenMinutesAgo = input.createdAt - 600;
-  const hourAgo = input.createdAt - 3600;
-  const dayAgo = input.createdAt - 86400;
+  const reservationWindowStart = input.createdAt - limits.reservationWindowSeconds;
+  const hourlyWindowStart = input.createdAt - limits.hourlyWindowSeconds;
+  const dailyWindowStart = input.createdAt - limits.dailyWindowSeconds;
 
   const results = await database.batch([
     database
@@ -62,19 +59,19 @@ export async function reserveQuotaAndCreateRecords(
            FROM rate_limit_events
            WHERE uploader_hash IN (?2, ?6)
              AND created_at >= ?7
-         ) < ${TEN_MINUTE_RESERVATION_LIMIT}
+         ) < ${limits.reservationLimit}
          AND COALESCE((
            SELECT SUM(size_bytes)
            FROM rate_limit_events
            WHERE uploader_hash IN (?2, ?6)
              AND created_at >= ?8
-         ), 0) + ?3 <= ${HOURLY_BYTE_LIMIT}
+         ), 0) + ?3 <= ${limits.hourlyBytes}
          AND COALESCE((
            SELECT SUM(size_bytes)
            FROM rate_limit_events
            WHERE uploader_hash IN (?2, ?6)
              AND created_at >= ?9
-         ), 0) + ?3 <= ${DAILY_BYTE_LIMIT}
+         ), 0) + ?3 <= ${limits.dailyBytes}
          AND EXISTS (
            SELECT 1
            FROM upload_invitations invitation
@@ -106,9 +103,9 @@ export async function reserveQuotaAndCreateRecords(
         input.createdAt,
         input.invitationId,
         input.previousUploaderHash,
-        tenMinutesAgo,
-        hourAgo,
-        dayAgo,
+        reservationWindowStart,
+        hourlyWindowStart,
+        dailyWindowStart,
       ),
     database
       .prepare(

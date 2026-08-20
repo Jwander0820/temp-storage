@@ -78,6 +78,7 @@ describe("upload, preview, download, and delete", () => {
     );
     expect(preview.status).toBe(200);
     expect(preview.headers.get("content-type")).toBe("image/jpeg");
+    expect(preview.headers.get("cache-control")).toBe("public, max-age=3600");
     expect(new Uint8Array(await preview.arrayBuffer())).toEqual(bytes);
 
     const ranged = await exports.default.fetch(
@@ -87,6 +88,7 @@ describe("upload, preview, download, and delete", () => {
     );
     expect(ranged.status).toBe(206);
     expect(ranged.headers.get("content-range")).toBe(`bytes 1-3/${bytes.byteLength}`);
+    expect(ranged.headers.get("cache-control")).toBe("private, no-store");
     expect(new Uint8Array(await ranged.arrayBuffer())).toEqual(bytes.slice(1, 4));
 
     const head = await exports.default.fetch(
@@ -111,6 +113,7 @@ describe("upload, preview, download, and delete", () => {
     expect(download.status).toBe(200);
     expect(download.headers.get("content-type")).toBe("application/octet-stream");
     expect(download.headers.get("content-disposition")).toContain("attachment");
+    expect(download.headers.get("cache-control")).toBe("private, no-store");
   });
 
   it("blocks active content disguised as an image and releases quota", async () => {

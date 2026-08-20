@@ -66,6 +66,7 @@ function invitationPayload(
 export const invitationRoutes = new Hono<AppEnv>();
 
 invitationRoutes.post("/invitations/exchange", async (context) => {
+  context.header("Cache-Control", "private, no-store");
   const input = parseExchangeInput(await context.req.json<unknown>());
   await verifyOptionalAccessCode(context.env, input.accessCode);
   await verifyTurnstile(
@@ -84,6 +85,7 @@ invitationRoutes.post("/invitations/exchange", async (context) => {
 });
 
 invitationRoutes.get("/invitations/session", uploadSessionMiddleware, async (context) => {
+  context.header("Cache-Control", "private, no-store");
   const session = await resolveInvitationSession(context);
   if (session === null) {
     throw new DomainError("INVITATION_REQUIRED", 401, "邀請 session 已失效。");

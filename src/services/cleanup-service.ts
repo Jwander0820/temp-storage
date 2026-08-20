@@ -1,5 +1,6 @@
 import type { Bindings } from "../bindings";
 import type { FileRecord } from "../domain/file";
+import { getConfig } from "../env";
 import {
   listFilesForCleanup,
   markMissingObjectDeleted,
@@ -26,9 +27,10 @@ export interface ReconcileResult {
 }
 
 export async function runCleanup(
-  env: Pick<Bindings, "DB" | "FILES">,
+  env: Bindings,
   now = Math.floor(Date.now() / 1000),
 ): Promise<CleanupResult> {
+  const config = getConfig(env);
   const runId = crypto.randomUUID();
   await env.DB.prepare(
     `INSERT INTO cleanup_runs (id, started_at, status)
@@ -43,7 +45,7 @@ export async function runCleanup(
 
   console.log(JSON.stringify({ level: "info", event: "cleanup.started", runId }));
 
-  const reservations = await listExpiredReservations(env.DB, now, 100);
+  const reservations = await listExpiredReservations(env.DB, now, config.cleanupBatchLimit);
   for (const reservation of reservations) {
     try {
       await releaseReservation(env.DB, reservation.id, now, "failed", "expired");
@@ -62,7 +64,7 @@ export async function runCleanup(
     }
   }
 
-  const files = await listFilesForCleanup(env.DB, now, 100);
+  const files = await listFilesForCleanup(env.DB, now, config.cleanupBatchLimit);
   const scannedCount = files.length;
   for (const file of files) {
     try {
@@ -83,7 +85,7 @@ export async function runCleanup(
   }
 
   const [purgedMetadata, purgedInvitationSessions] = await Promise.all([
-    purgeDeletedMetadata(env.DB, now - 604800),
+    purgeDeletedMetadata(env.DB, now - config.deletedMetadataRetentionSeconds),
     purgeExpiredSessions(env.DB, now),
   ]);
   const status = failedCount === 0 ? "completed" : deletedCount > 0 ? "partial" : "failed";
@@ -124,15 +126,16 @@ export async function runCleanup(
 }
 
 export async function reconcileStorage(
-  env: Pick<Bindings, "DB" | "FILES">,
+  env: Bindings,
   now = Math.floor(Date.now() / 1000),
 ): Promise<ReconcileResult> {
+  const config = getConfig(env);
   const activeResult = await env.DB.prepare(
     `SELECT *
      FROM files
      WHERE status = 'active'
      ORDER BY created_at
-     LIMIT 500`,
+     LIMIT ${config.reconcileMetadataLimit}`,
   ).all<FileRecord>();
 
   let missingObjects = 0;
@@ -143,10 +146,13 @@ export async function reconcileStorage(
     }
   }
 
-  const listed = await env.FILES.list({ prefix: "objects/", limit: 1000 });
+  const listed = await env.FILES.list({
+    prefix: "objects/",
+    limit: config.reconcileObjectLimit,
+  });
   let orphanObjects = 0;
   for (const object of listed.objects) {
-    if (object.uploaded.getTime() > (now - 3600) * 1000) {
+    if (object.uploaded.getTime() > (now - config.reconcileOrphanGraceSeconds) * 1000) {
       continue;
     }
     const file = await env.DB.prepare("SELECT id FROM files WHERE object_key = ?1")

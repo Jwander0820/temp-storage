@@ -7,21 +7,32 @@ const adminHeaders = {
   "Content-Type": "application/json",
 };
 
-async function createInvitation(options?: { maxFiles?: number; maxBytes?: number }) {
+async function createInvitation(options?: {
+  maxFiles?: number;
+  maxBytes?: number;
+  expiresInSeconds?: number;
+}) {
   const response = await exports.default.fetch(
     new Request("https://upload.example.test/api/admin/invitations", {
       method: "POST",
       headers: adminHeaders,
       body: JSON.stringify({
         label: "朋友 A",
-        expiresInSeconds: 3600,
+        expiresInSeconds: options?.expiresInSeconds ?? 86_400,
         maxFiles: options?.maxFiles ?? 3,
         maxBytes: options?.maxBytes ?? 1024,
       }),
     }),
   );
   expect(response.status).toBe(201);
-  return response.json<{ id: string; token: string; inviteUrl: string }>();
+  return response.json<{
+    id: string;
+    token: string;
+    inviteUrl: string;
+    maxFiles: number;
+    maxBytes: number;
+    expiresAt: string;
+  }>();
 }
 
 async function exchange(token: string): Promise<{ response: Response; cookie: string }> {
@@ -115,6 +126,61 @@ describe("upload invitations", () => {
     expect(rawUpload.status).toBe(401);
   });
 
+  it("requires a session before exposing storage usage", async () => {
+    const anonymous = await exports.default.fetch(
+      new Request("https://upload.example.test/api/storage"),
+    );
+    expect(anonymous.status).toBe(401);
+
+    const invitation = await createInvitation();
+    const { cookie } = await exchange(invitation.token);
+    const authenticated = await exports.default.fetch(
+      new Request("https://upload.example.test/api/storage", {
+        headers: { Cookie: cookie },
+      }),
+    );
+    expect(authenticated.status).toBe(200);
+    expect(authenticated.headers.get("Cache-Control")).toBe("private, no-store");
+  });
+
+  it("enforces a minimum invitation lifetime of one day", async () => {
+    const response = await exports.default.fetch(
+      new Request("https://upload.example.test/api/admin/invitations", {
+        method: "POST",
+        headers: adminHeaders,
+        body: JSON.stringify({
+          label: "太短",
+          expiresInSeconds: 86_399,
+          maxFiles: 1,
+          maxBytes: 1,
+        }),
+      }),
+    );
+    expect(response.status).toBe(400);
+  });
+
+  it("uses configurable invitation defaults when limits are omitted", async () => {
+    const before = Math.floor(Date.now() / 1000);
+    const response = await exports.default.fetch(
+      new Request("https://upload.example.test/api/admin/invitations", {
+        method: "POST",
+        headers: adminHeaders,
+        body: JSON.stringify({ label: "預設值" }),
+      }),
+    );
+    expect(response.status).toBe(201);
+    const invitation = await response.json<{
+      maxFiles: number;
+      maxBytes: number;
+      expiresAt: string;
+    }>();
+    expect(invitation.maxFiles).toBe(10);
+    expect(invitation.maxBytes).toBe(300 * 1024 * 1024);
+    const lifetime = Math.floor(new Date(invitation.expiresAt).getTime() / 1000) - before;
+    expect(lifetime).toBeGreaterThanOrEqual(7 * 86_400);
+    expect(lifetime).toBeLessThanOrEqual(7 * 86_400 + 1);
+  });
+
   it("enforces invitation file and byte limits independently of the IP limit", async () => {
     const invitation = await createInvitation({ maxFiles: 1, maxBytes: 10 });
     const { cookie } = await exchange(invitation.token);
@@ -176,7 +242,7 @@ describe("upload invitations", () => {
         headers: adminHeaders,
         body: JSON.stringify({
           label: "朋友 B",
-          expiresInSeconds: 3600,
+          expiresInSeconds: 86_400,
           maxFiles: 3,
           maxBytes: 1024,
         }),
@@ -232,6 +298,9 @@ describe("hostname boundary", () => {
     ).toBe(404);
     expect(
       (await exports.default.fetch(new Request("https://unknown.example.test/api/health"))).status,
+    ).toBe(404);
+    expect(
+      (await exports.default.fetch(new Request("https://cdn.example.test/p/not-a-file-id"))).status,
     ).toBe(404);
   });
 });

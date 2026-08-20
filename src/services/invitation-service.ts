@@ -2,6 +2,7 @@ import type { Context } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import type { AppEnv } from "../app-types";
 import { DomainError } from "../domain/errors";
+import { getConfig } from "../env";
 import type { InvitationSession, UploadInvitation } from "../domain/invitation";
 import {
   createSession,
@@ -12,8 +13,6 @@ import {
 import { hashPepperedValue, randomToken } from "../utils/hash";
 
 const SESSION_COOKIE = "jwander_upload_session";
-const SESSION_TTL_SECONDS = 12 * 60 * 60;
-
 function invitationTokenHash(pepper: string, token: string): Promise<string> {
   return hashPepperedValue(pepper, `invitation\u0000${token}`);
 }
@@ -41,7 +40,10 @@ export async function exchangeInvitationToken(
   }
 
   const sessionToken = randomToken(32);
-  const sessionExpiresAt = Math.min(invitation.expires_at, now + SESSION_TTL_SECONDS);
+  const sessionExpiresAt = Math.min(
+    invitation.expires_at,
+    now + getConfig(context.env).uploadSessionTtlSeconds,
+  );
   await createSession(context.env.DB, {
     id: randomToken(16),
     tokenHash: await sessionTokenHash(context.env.DELETE_TOKEN_PEPPER, sessionToken),

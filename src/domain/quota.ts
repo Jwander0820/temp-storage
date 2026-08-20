@@ -12,3 +12,12 @@ export interface PublicStorageUsage {
   readonly availableBytes: number;
   readonly usageRatio: number;
 }
+
+export interface UploadRateLimits {
+  readonly reservationWindowSeconds: number;
+  readonly reservationLimit: number;
+  readonly hourlyWindowSeconds: number;
+  readonly hourlyBytes: number;
+  readonly dailyWindowSeconds: number;
+  readonly dailyBytes: number;
+}

@@ -6,9 +6,9 @@ const projectRoot = fileURLToPath(new URL("../", import.meta.url));
 
 const defaults = {
   label: "upload",
-  days: 7,
-  files: 10,
-  mb: 300,
+  days: undefined,
+  files: undefined,
+  mb: undefined,
 };
 
 const optionNames = new Set(["--label", "--days", "--files", "--mb"]);
@@ -21,9 +21,9 @@ function usage() {
 
 選項：
   --label <名稱>  邀請名稱，預設 upload
-  --days <天數>   有效天數，預設 7，最多 30
-  --files <數量>  最多檔案數，預設 10，最多 100
-  --mb <容量>     總容量 MiB，預設 300
+  --days <天數>   有效天數；未指定時使用 Worker 設定，至少 1 天
+  --files <數量>  最多檔案數；未指定時使用 Worker 設定
+  --mb <容量>     總容量 MiB；未指定時使用 Worker 設定
   --help          顯示說明
 
 環境變數：
@@ -71,10 +71,10 @@ function parseArguments(argv) {
         values.label = value.trim();
         break;
       case "--days":
-        values.days = parseNumber(value, "--days", { maximum: 30 });
+        values.days = parseNumber(value, "--days");
         break;
       case "--files":
-        values.files = parseNumber(value, "--files", { maximum: 100 });
+        values.files = parseNumber(value, "--files");
         break;
       case "--mb":
         values.mb = parseNumber(value, "--mb", { integer: false });
@@ -141,18 +141,23 @@ function getAdminToken() {
 }
 
 async function createInvitation(values, adminToken) {
+  const body = { label: values.label };
+  if (values.days !== undefined) {
+    body.expiresInSeconds = values.days * 24 * 60 * 60;
+  }
+  if (values.files !== undefined) {
+    body.maxFiles = values.files;
+  }
+  if (values.mb !== undefined) {
+    body.maxBytes = Math.round(values.mb * 1024 * 1024);
+  }
   const response = await fetch("https://upload.jwander.net/api/admin/invitations", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${adminToken}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      label: values.label,
-      expiresInSeconds: values.days * 24 * 60 * 60,
-      maxFiles: values.files,
-      maxBytes: Math.round(values.mb * 1024 * 1024),
-    }),
+    body: JSON.stringify(body),
   });
 
   const responseText = await response.text();
@@ -194,7 +199,9 @@ async function main() {
   console.log("\n邀請已建立。");
   console.log(`名稱：${invitation.label}`);
   console.log(`到期：${invitation.expiresAt}`);
-  console.log(`限制：${invitation.maxFiles} 個檔案 / ${values.mb} MiB`);
+  console.log(
+    `限制：${invitation.maxFiles} 個檔案 / ${(invitation.maxBytes / 1024 / 1024).toFixed(2)} MiB`,
+  );
   console.log(`ID：${invitation.id}`);
   console.log(`\n${invitation.inviteUrl}\n`);
   console.log(copied ? "邀請網址已複製到剪貼簿。" : "請手動複製上方邀請網址。");

@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import type { AppEnv } from "../app-types";
 import type { FileStatus } from "../domain/file";
 import { DomainError } from "../domain/errors";
-import { getConfig } from "../env";
+import { getConfig, type AppConfig } from "../env";
 import { adminAuthMiddleware } from "../middleware/admin-auth";
 import { listAdminFiles } from "../repositories/file-repository";
 import {
@@ -27,12 +27,6 @@ const FILE_STATUSES = new Set<FileStatus>([
   "failed",
 ]);
 
-const DEFAULT_INVITATION_TTL_SECONDS = 7 * 24 * 60 * 60;
-const MAX_INVITATION_TTL_SECONDS = 30 * 24 * 60 * 60;
-const DEFAULT_INVITATION_FILES = 10;
-const MAX_INVITATION_FILES = 100;
-const DEFAULT_INVITATION_BYTES = 300 * 1024 * 1024;
-
 interface CreateInvitationRequest {
   readonly label: string;
   readonly expiresInSeconds: number;
@@ -40,28 +34,28 @@ interface CreateInvitationRequest {
   readonly maxBytes: number;
 }
 
-function parseCreateInvitation(value: unknown, maxStorageBytes: number): CreateInvitationRequest {
+function parseCreateInvitation(value: unknown, config: AppConfig): CreateInvitationRequest {
   if (typeof value !== "object" || value === null) {
     throw new DomainError("INVALID_REQUEST", 400, "邀請資料格式不正確。");
   }
   const record = value as Record<string, unknown>;
   const label = record.label;
-  const expiresInSeconds = record.expiresInSeconds ?? DEFAULT_INVITATION_TTL_SECONDS;
-  const maxFiles = record.maxFiles ?? DEFAULT_INVITATION_FILES;
-  const maxBytes = record.maxBytes ?? DEFAULT_INVITATION_BYTES;
+  const expiresInSeconds = record.expiresInSeconds ?? config.invitationDefaultTtlSeconds;
+  const maxFiles = record.maxFiles ?? config.invitationDefaultMaxFiles;
+  const maxBytes = record.maxBytes ?? config.invitationDefaultMaxBytes;
   if (
     typeof label !== "string" ||
     label.trim().length === 0 ||
     label.trim().length > 80 ||
     !Number.isSafeInteger(expiresInSeconds) ||
-    (expiresInSeconds as number) < 300 ||
-    (expiresInSeconds as number) > MAX_INVITATION_TTL_SECONDS ||
+    (expiresInSeconds as number) < config.invitationMinTtlSeconds ||
+    (expiresInSeconds as number) > config.invitationMaxTtlSeconds ||
     !Number.isSafeInteger(maxFiles) ||
     (maxFiles as number) < 1 ||
-    (maxFiles as number) > MAX_INVITATION_FILES ||
+    (maxFiles as number) > config.invitationMaxFiles ||
     !Number.isSafeInteger(maxBytes) ||
     (maxBytes as number) < 1 ||
-    (maxBytes as number) > maxStorageBytes
+    (maxBytes as number) > config.maxStorageBytes
   ) {
     throw new DomainError("INVALID_REQUEST", 400, "邀請限制格式不正確。");
   }
@@ -187,7 +181,7 @@ adminRoutes.get("/files", async (context) => {
 
 adminRoutes.post("/invitations", async (context) => {
   const config = getConfig(context.env);
-  const input = parseCreateInvitation(await context.req.json<unknown>(), config.maxStorageBytes);
+  const input = parseCreateInvitation(await context.req.json<unknown>(), config);
   const now = Math.floor(Date.now() / 1000);
   const token = randomToken(32);
   const id = randomToken(16);

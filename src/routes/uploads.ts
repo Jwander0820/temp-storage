@@ -74,7 +74,7 @@ uploadRoutes.post("/uploads/reserve", async (context) => {
     throw new DomainError("INVALID_REQUEST", 400, "檔案大小不正確。");
   }
   if (input.sizeBytes > config.maxFileBytes) {
-    throw new DomainError("FILE_TOO_LARGE", 413, "單一檔案不可超過 50 MiB。");
+    throw new DomainError("FILE_TOO_LARGE", 413, "單一檔案超過目前設定的大小上限。");
   }
 
   const extension = getExtension(filename);
@@ -93,22 +93,33 @@ uploadRoutes.post("/uploads/reserve", async (context) => {
 
   const fileId = createFileId();
   const reservationId = fileId;
-  await reserveQuotaAndCreateRecords(context.env.DB, {
-    eventId: crypto.randomUUID(),
-    reservationId,
-    fileId,
-    objectKey: objectKey(fileId, now),
-    filename,
-    extension,
-    declaredMime: input.declaredMime?.slice(0, 255) ?? null,
-    sizeBytes: input.sizeBytes,
-    uploaderHash,
-    previousUploaderHash,
-    invitationId: context.get("uploadInvitationId"),
-    createdAt: now,
-    reservationExpiresAt: now + config.reservationTtlSeconds,
-    fileExpiresAt: now + config.fileRetentionSeconds,
-  });
+  await reserveQuotaAndCreateRecords(
+    context.env.DB,
+    {
+      eventId: crypto.randomUUID(),
+      reservationId,
+      fileId,
+      objectKey: objectKey(fileId, now),
+      filename,
+      extension,
+      declaredMime: input.declaredMime?.slice(0, 255) ?? null,
+      sizeBytes: input.sizeBytes,
+      uploaderHash,
+      previousUploaderHash,
+      invitationId: context.get("uploadInvitationId"),
+      createdAt: now,
+      reservationExpiresAt: now + config.reservationTtlSeconds,
+      fileExpiresAt: now + config.fileRetentionSeconds,
+    },
+    {
+      reservationWindowSeconds: config.uploadReservationWindowSeconds,
+      reservationLimit: config.uploadReservationLimit,
+      hourlyWindowSeconds: config.uploadHourlyWindowSeconds,
+      hourlyBytes: config.uploadHourlyBytes,
+      dailyWindowSeconds: config.uploadDailyWindowSeconds,
+      dailyBytes: config.uploadDailyBytes,
+    },
+  );
 
   console.log(
     JSON.stringify({
@@ -128,6 +139,7 @@ uploadRoutes.post("/uploads/reserve", async (context) => {
 });
 
 uploadRoutes.put("/uploads/:uploadId", async (context) => {
+  const config = getConfig(context.env);
   const uploadId = context.req.param("uploadId");
   const initial = await getUploadRecord(context.env.DB, uploadId);
   if (initial === null) {
@@ -182,6 +194,7 @@ uploadRoutes.put("/uploads/:uploadId", async (context) => {
       claimed,
       peeked.stream,
       classification.detectedMime,
+      config.mediaPreviewCacheSeconds,
     );
     objectStored = true;
 

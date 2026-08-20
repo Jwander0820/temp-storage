@@ -11,5 +11,6 @@ describe("health endpoint", () => {
     await expect(response.json()).resolves.toEqual({ status: "ok" });
     expect(response.headers.get("x-content-type-options")).toBe("nosniff");
     expect(response.headers.get("x-request-id")).toBeTruthy();
+    expect(response.headers.get("cache-control")).toBe("public, max-age=60");
   });
 });

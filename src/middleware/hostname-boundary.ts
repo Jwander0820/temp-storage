@@ -3,9 +3,10 @@ import { createMiddleware } from "hono/factory";
 import type { AppEnv } from "../app-types";
 import { getConfig } from "../env";
 
-const publicMediaPath = /^\/(?:p|d)\/[A-Za-z0-9_-]+$/u;
+const publicMediaPath = /^\/(?:p|d)\/[A-Za-z0-9_-]{22}$/u;
 
 function notFound(context: Context<AppEnv>) {
+  context.header("Cache-Control", "private, no-store");
   return context.json(
     {
       error: {

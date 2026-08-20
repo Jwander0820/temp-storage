@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { AppEnv } from "./app-types";
 import type { Bindings } from "./bindings";
+import { getConfig } from "./env";
 import { handleError } from "./middleware/error-handler";
 import { hostnameBoundaryMiddleware } from "./middleware/hostname-boundary";
 import { requestIdMiddleware } from "./middleware/request-id";
@@ -19,7 +20,13 @@ app.use("*", requestIdMiddleware);
 app.use("*", securityHeadersMiddleware);
 app.use("*", hostnameBoundaryMiddleware);
 
-app.get("/api/health", (context) => context.json({ status: "ok" }));
+app.get("/api/health", (context) => {
+  context.header(
+    "Cache-Control",
+    `public, max-age=${getConfig(context.env).publicConfigCacheSeconds}`,
+  );
+  return context.json({ status: "ok" });
+});
 app.route("/api", storageRoutes);
 app.route("/api", invitationRoutes);
 app.route("/api", uploadRoutes);
@@ -39,6 +46,7 @@ app.notFound((context) => {
   ) {
     return context.env.ASSETS.fetch(context.req.raw);
   }
+  context.header("Cache-Control", "private, no-store");
   return context.json(
     {
       error: {

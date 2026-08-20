@@ -2,8 +2,17 @@ import { env, exports } from "cloudflare:workers";
 import { vi } from "vitest";
 import { createInvitation } from "../src/repositories/invitation-repository";
 import { createInvitationTokenHash } from "../src/services/invitation-service";
+import type { UploadRateLimits } from "../src/domain/quota";
 
 export const TEST_INVITATION_ID = "test-invitation";
+export const TEST_UPLOAD_RATE_LIMITS: UploadRateLimits = {
+  reservationWindowSeconds: 600,
+  reservationLimit: 10,
+  hourlyWindowSeconds: 3600,
+  hourlyBytes: 100 * 1024 * 1024,
+  dailyWindowSeconds: 86_400,
+  dailyBytes: 300 * 1024 * 1024,
+};
 
 export async function resetState(maxBytes = 3221225472): Promise<void> {
   const listed = await env.FILES.list({ prefix: "objects/", limit: 1000 });
