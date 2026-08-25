@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { AppEnv } from "../app-types";
 import { DomainError } from "../domain/errors";
+import { TEMP_OBJECT_PREFIX } from "../domain/storage";
 import type { ReserveUploadInput } from "../domain/upload";
 import { getConfig } from "../env";
 import { uploadSessionMiddleware } from "../middleware/upload-session";
@@ -49,7 +50,7 @@ function dateBucket(epochSeconds: number): string {
 
 function objectKey(fileId: string, epochSeconds: number): string {
   const [year, month, day] = dateBucket(epochSeconds).split("-");
-  return `objects/${year}/${month}/${day}/${fileId}`;
+  return `${TEMP_OBJECT_PREFIX}${year}/${month}/${day}/${fileId}`;
 }
 
 function isByteStream(value: unknown): value is ReadableStream<Uint8Array> {
@@ -194,6 +195,7 @@ uploadRoutes.put("/uploads/:uploadId", async (context) => {
       claimed,
       peeked.stream,
       classification.detectedMime,
+      classification.previewPolicy,
       config.mediaPreviewCacheSeconds,
     );
     objectStored = true;

@@ -3,6 +3,7 @@ import { vi } from "vitest";
 import { createInvitation } from "../src/repositories/invitation-repository";
 import { createInvitationTokenHash } from "../src/services/invitation-service";
 import type { UploadRateLimits } from "../src/domain/quota";
+import { TEMP_OBJECT_PREFIX } from "../src/domain/storage";
 
 export const TEST_INVITATION_ID = "test-invitation";
 export const TEST_UPLOAD_RATE_LIMITS: UploadRateLimits = {
@@ -15,7 +16,7 @@ export const TEST_UPLOAD_RATE_LIMITS: UploadRateLimits = {
 };
 
 export async function resetState(maxBytes = 3221225472): Promise<void> {
-  const listed = await env.FILES.list({ prefix: "objects/", limit: 1000 });
+  const listed = await env.FILES.list({ prefix: TEMP_OBJECT_PREFIX, limit: 1000 });
   if (listed.objects.length > 0) {
     await env.FILES.delete(listed.objects.map((object) => object.key));
   }

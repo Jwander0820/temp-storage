@@ -159,6 +159,25 @@ describe("upload invitations", () => {
     expect(response.status).toBe(400);
   });
 
+  it("allows a one-year invitation and rejects longer lifetimes", async () => {
+    const oneYear = await createInvitation({ expiresInSeconds: 365 * 86_400 });
+    expect(new Date(oneYear.expiresAt).getTime()).toBeGreaterThan(Date.now());
+
+    const tooLong = await exports.default.fetch(
+      new Request("https://upload.example.test/api/admin/invitations", {
+        method: "POST",
+        headers: adminHeaders,
+        body: JSON.stringify({
+          label: "超過一年",
+          expiresInSeconds: 365 * 86_400 + 1,
+          maxFiles: 1,
+          maxBytes: 1,
+        }),
+      }),
+    );
+    expect(tooLong.status).toBe(400);
+  });
+
   it("uses configurable invitation defaults when limits are omitted", async () => {
     const before = Math.floor(Date.now() / 1000);
     const response = await exports.default.fetch(

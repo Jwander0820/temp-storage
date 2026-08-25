@@ -1,4 +1,4 @@
-import type { FileRecord } from "../domain/file";
+import type { FileRecord, PreviewPolicy } from "../domain/file";
 import { DomainError } from "../domain/errors";
 import { contentDisposition } from "../utils/filename";
 import { parseRangeHeader, type ByteRange } from "../utils/range";
@@ -8,14 +8,22 @@ export async function storeObject(
   file: FileRecord,
   body: ReadableStream,
   detectedMime: string,
+  previewPolicy: Exclude<PreviewPolicy, "blocked">,
   previewCacheSeconds: number,
 ): Promise<R2Object> {
+  const publiclyPreviewable = previewPolicy === "inline";
   const stored = await bucket.put(file.object_key, body, {
     onlyIf: { etagDoesNotMatch: "*" },
     httpMetadata: {
       contentType: detectedMime,
+      contentDisposition: contentDisposition(
+        publiclyPreviewable ? "inline" : "attachment",
+        file.original_name,
+      ),
       cacheControl:
-        previewCacheSeconds > 0 ? `public, max-age=${previewCacheSeconds}` : "private, no-store",
+        publiclyPreviewable && previewCacheSeconds > 0
+          ? `public, max-age=${previewCacheSeconds}`
+          : "private, no-store",
     },
     customMetadata: {
       fileId: file.id,

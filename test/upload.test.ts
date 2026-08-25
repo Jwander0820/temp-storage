@@ -65,8 +65,19 @@ describe("upload, preview, download, and delete", () => {
     expect(result.detectedMime).toBe("image/jpeg");
     expect(result.previewPolicy).toBe("inline");
     expect(result.deleteToken.length).toBeGreaterThan(40);
-    expect(result.previewUrl).toBe(`https://cdn.example.test/p/${result.id}`);
-    expect(result.downloadUrl).toBe(`https://cdn.example.test/d/${result.id}`);
+    const storedFile = await env.DB.prepare("SELECT object_key FROM files WHERE id = ?1")
+      .bind(result.id)
+      .first<{ object_key: string }>();
+    expect(storedFile?.object_key).toMatch(
+      /^temp-storage\/objects\/\d{4}\/\d{2}\/\d{2}\/[A-Za-z0-9_-]{22}$/u,
+    );
+    expect(result.previewUrl).toBe(`https://cdn.example.test/${storedFile?.object_key}`);
+    expect(result.downloadUrl).toBe(`https://upload.example.test/d/${result.id}`);
+
+    const storedObject = await env.FILES.head(storedFile?.object_key ?? "");
+    expect(storedObject?.httpMetadata?.contentType).toBe("image/jpeg");
+    expect(storedObject?.httpMetadata?.contentDisposition).toContain("inline");
+    expect(storedObject?.httpMetadata?.cacheControl).toBe("public, max-age=3600");
 
     const storedToken = await env.DB.prepare("SELECT delete_token_hash FROM files WHERE id = ?1")
       .bind(result.id)
@@ -74,7 +85,7 @@ describe("upload, preview, download, and delete", () => {
     expect(storedToken?.delete_token_hash).not.toBe(result.deleteToken);
 
     const preview = await exports.default.fetch(
-      new Request(`https://cdn.example.test/p/${result.id}`),
+      new Request(`https://upload.example.test/p/${result.id}`),
     );
     expect(preview.status).toBe(200);
     expect(preview.headers.get("content-type")).toBe("image/jpeg");
@@ -82,7 +93,7 @@ describe("upload, preview, download, and delete", () => {
     expect(new Uint8Array(await preview.arrayBuffer())).toEqual(bytes);
 
     const ranged = await exports.default.fetch(
-      new Request(`https://cdn.example.test/p/${result.id}`, {
+      new Request(`https://upload.example.test/p/${result.id}`, {
         headers: { Range: "bytes=1-3" },
       }),
     );
@@ -92,7 +103,7 @@ describe("upload, preview, download, and delete", () => {
     expect(new Uint8Array(await ranged.arrayBuffer())).toEqual(bytes.slice(1, 4));
 
     const head = await exports.default.fetch(
-      new Request(`https://cdn.example.test/p/${result.id}`, { method: "HEAD" }),
+      new Request(`https://upload.example.test/p/${result.id}`, { method: "HEAD" }),
     );
     expect(head.status).toBe(200);
     expect(await head.text()).toBe("");
@@ -101,19 +112,28 @@ describe("upload, preview, download, and delete", () => {
   it("forces ZIP downloads and hides them from preview", async () => {
     const bytes = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0x00]);
     const { result } = await upload("archive.zip", bytes, "application/zip");
+    expect(result.previewUrl).toBeNull();
+    expect(result.downloadUrl).toBe(`https://upload.example.test/d/${result.id}`);
 
     const preview = await exports.default.fetch(
-      new Request(`https://cdn.example.test/p/${result.id}`),
+      new Request(`https://upload.example.test/p/${result.id}`),
     );
     expect(preview.status).toBe(404);
 
     const download = await exports.default.fetch(
-      new Request(`https://cdn.example.test/d/${result.id}`),
+      new Request(`https://upload.example.test/d/${result.id}`),
     );
     expect(download.status).toBe(200);
     expect(download.headers.get("content-type")).toBe("application/octet-stream");
     expect(download.headers.get("content-disposition")).toContain("attachment");
     expect(download.headers.get("cache-control")).toBe("private, no-store");
+
+    const storedFile = await env.DB.prepare("SELECT object_key FROM files WHERE id = ?1")
+      .bind(result.id)
+      .first<{ object_key: string }>();
+    const storedObject = await env.FILES.head(storedFile?.object_key ?? "");
+    expect(storedObject?.httpMetadata?.contentDisposition).toContain("attachment");
+    expect(storedObject?.httpMetadata?.cacheControl).toBe("private, no-store");
   });
 
   it("blocks active content disguised as an image and releases quota", async () => {
@@ -147,8 +167,17 @@ describe("upload, preview, download, and delete", () => {
 
     expect((await request()).status).toBe(204);
     expect((await request()).status).toBe(204);
-    expect(
-      (await exports.default.fetch(new Request(`https://cdn.example.test/p/${result.id}`))).status,
-    ).toBe(404);
+    const file = await env.DB.prepare("SELECT object_key FROM files WHERE id = ?1")
+      .bind(result.id)
+      .first<{ object_key: string }>();
+    expect(await env.FILES.head(file?.object_key ?? "missing")).toBeNull();
+  });
+
+  it("does not route the direct R2 CDN hostname through the Worker", async () => {
+    const response = await exports.default.fetch(
+      new Request("https://cdn.example.test/temp-storage/objects/example"),
+    );
+    expect(response.status).toBe(404);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
   });
 });

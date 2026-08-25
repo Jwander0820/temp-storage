@@ -1,5 +1,6 @@
 import type { Bindings } from "../bindings";
 import type { FileRecord } from "../domain/file";
+import { TEMP_OBJECT_PREFIX } from "../domain/storage";
 import { getConfig } from "../env";
 import {
   listFilesForCleanup,
@@ -147,7 +148,7 @@ export async function reconcileStorage(
   }
 
   const listed = await env.FILES.list({
-    prefix: "objects/",
+    prefix: TEMP_OBJECT_PREFIX,
     limit: config.reconcileObjectLimit,
   });
   let orphanObjects = 0;

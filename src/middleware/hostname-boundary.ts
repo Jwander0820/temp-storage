@@ -3,8 +3,6 @@ import { createMiddleware } from "hono/factory";
 import type { AppEnv } from "../app-types";
 import { getConfig } from "../env";
 
-const publicMediaPath = /^\/(?:p|d)\/[A-Za-z0-9_-]{22}$/u;
-
 function notFound(context: Context<AppEnv>) {
   context.header("Cache-Control", "private, no-store");
   return context.json(
@@ -23,18 +21,8 @@ export const hostnameBoundaryMiddleware = createMiddleware<AppEnv>(async (contex
   const requestUrl = new URL(context.req.url);
   const config = getConfig(context.env);
   const uploadHostname = new URL(config.uploadOrigin).hostname;
-  const cdnHostname = new URL(config.cdnOrigin).hostname;
 
   if (requestUrl.hostname === uploadHostname) {
-    await next();
-    return;
-  }
-
-  if (
-    requestUrl.hostname === cdnHostname &&
-    (context.req.method === "GET" || context.req.method === "HEAD") &&
-    publicMediaPath.test(requestUrl.pathname)
-  ) {
     await next();
     return;
   }

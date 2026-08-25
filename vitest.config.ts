@@ -16,6 +16,7 @@ export default defineConfig({
           IP_HASH_PEPPER: "test-ip-hash-pepper-32-bytes-minimum",
           ADMIN_TOKEN: "test-admin-token-32-bytes-minimum",
           UPLOAD_ACCESS_CODE: "",
+          UPLOADS_ENABLED: "true",
           UPLOAD_ORIGIN: "https://upload.example.test",
           CDN_ORIGIN: "https://cdn.example.test",
         },

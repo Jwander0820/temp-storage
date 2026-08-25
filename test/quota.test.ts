@@ -14,7 +14,7 @@ function reservation(sizeBytes: number, suffix: string) {
     eventId: `event-${suffix}`,
     reservationId: `reservation-${suffix}`,
     fileId: `file-${suffix}`,
-    objectKey: `objects/2027/01/15/file-${suffix}`,
+    objectKey: `temp-storage/objects/2027/01/15/file-${suffix}`,
     filename: `file-${suffix}.bin`,
     extension: "bin",
     declaredMime: "application/octet-stream",

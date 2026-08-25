@@ -24,7 +24,7 @@ describe("cleanup", () => {
         eventId: "expired-event",
         reservationId: "expired-upload",
         fileId: "expired-file",
-        objectKey: "objects/2027/01/15/expired-file",
+        objectKey: "temp-storage/objects/2027/01/15/expired-file",
         filename: "expired.bin",
         extension: "bin",
         declaredMime: "application/octet-stream",
@@ -55,7 +55,7 @@ describe("cleanup", () => {
         eventId: "active-event",
         reservationId: "active-upload",
         fileId: "active-file",
-        objectKey: "objects/2027/01/15/active-file",
+        objectKey: "temp-storage/objects/2027/01/15/active-file",
         filename: "active.bin",
         extension: "bin",
         declaredMime: "application/octet-stream",
@@ -70,7 +70,10 @@ describe("cleanup", () => {
       TEST_UPLOAD_RATE_LIMITS,
     );
     await env.DB.prepare("UPDATE files SET status = 'uploading' WHERE id = 'active-file'").run();
-    await env.FILES.put("objects/2027/01/15/active-file", new Uint8Array([1, 2, 3, 4]));
+    await env.FILES.put(
+      "temp-storage/objects/2027/01/15/active-file",
+      new Uint8Array([1, 2, 3, 4]),
+    );
     await completeUpload(env.DB, {
       uploadId: "active-upload",
       sizeBytes: 4,
@@ -84,7 +87,7 @@ describe("cleanup", () => {
     const second = await runCleanup(env, now);
     expect(first.deletedCount).toBe(1);
     expect(second.deletedCount).toBe(0);
-    expect(await env.FILES.head("objects/2027/01/15/active-file")).toBeNull();
+    expect(await env.FILES.head("temp-storage/objects/2027/01/15/active-file")).toBeNull();
 
     const usage = await env.DB.prepare("SELECT used_bytes FROM storage_usage WHERE id = 1").first<{
       used_bytes: number;

@@ -21,7 +21,7 @@ function usage() {
 
 選項：
   --label <名稱>  邀請名稱，預設 upload
-  --days <天數>   有效天數；未指定時使用 Worker 設定，至少 1 天
+  --days <天數>   有效天數；未指定時使用 Worker 設定，可設定 1 至 365 天
   --files <數量>  最多檔案數；未指定時使用 Worker 設定
   --mb <容量>     總容量 MiB；未指定時使用 Worker 設定
   --help          顯示說明

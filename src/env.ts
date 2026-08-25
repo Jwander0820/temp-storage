@@ -49,6 +49,16 @@ function parseNonNegativeInteger(value: string, name: string): number {
   return parsed;
 }
 
+function parseBoolean(value: string, name: string): boolean {
+  if (value === "true") {
+    return true;
+  }
+  if (value === "false") {
+    return false;
+  }
+  throw new DomainError("INTERNAL_ERROR", 500, `Invalid ${name} configuration.`);
+}
+
 function invalidRelationship(message: string): never {
   throw new DomainError("INTERNAL_ERROR", 500, `Invalid configuration: ${message}.`);
 }
@@ -153,7 +163,7 @@ export function getConfig(env: Env): AppConfig {
       env.RECONCILE_ORPHAN_GRACE_SECONDS,
       "RECONCILE_ORPHAN_GRACE_SECONDS",
     ),
-    uploadsEnabled: env.UPLOADS_ENABLED === "true",
+    uploadsEnabled: parseBoolean(env.UPLOADS_ENABLED, "UPLOADS_ENABLED"),
     uploadOrigin: parseOrigin(env.UPLOAD_ORIGIN, "UPLOAD_ORIGIN"),
     cdnOrigin: parseOrigin(env.CDN_ORIGIN, "CDN_ORIGIN"),
     turnstileSiteKey: env.TURNSTILE_SITE_KEY,

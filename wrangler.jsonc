@@ -12,10 +12,6 @@
       "pattern": "upload.jwander.net",
       "custom_domain": true,
     },
-    {
-      "pattern": "files.jwander.net",
-      "custom_domain": true,
-    },
   ],
   "assets": {
     "directory": "./dist/client",
@@ -26,14 +22,14 @@
   "r2_buckets": [
     {
       "binding": "FILES",
-      "bucket_name": "jwander-temp-storage",
+      "bucket_name": "cdn",
     },
   ],
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "jwander-temp-storage-db",
-      "database_id": "0c560750-18b1-4997-8260-d60d5cd39694",
+      "database_id": "52dbae2e-24ab-4c61-aa9a-06acfcc35252",
       "migrations_dir": "./migrations",
     },
   ],
@@ -43,7 +39,7 @@
   "vars": {
     "MAX_STORAGE_BYTES": "3221225472",
     "MAX_FILE_BYTES": "52428800",
-    "FILE_RETENTION_SECONDS": "2592000",
+    "FILE_RETENTION_SECONDS": "7776000",
     "RESERVATION_TTL_SECONDS": "900",
     "UPLOAD_RESERVATION_WINDOW_SECONDS": "600",
     "UPLOAD_RESERVATION_LIMIT": "10",
@@ -53,7 +49,7 @@
     "UPLOAD_DAILY_BYTES": "314572800",
     "INVITATION_MIN_TTL_SECONDS": "86400",
     "INVITATION_DEFAULT_TTL_SECONDS": "604800",
-    "INVITATION_MAX_TTL_SECONDS": "2592000",
+    "INVITATION_MAX_TTL_SECONDS": "31536000",
     "INVITATION_DEFAULT_MAX_FILES": "10",
     "INVITATION_MAX_FILES": "100",
     "INVITATION_DEFAULT_MAX_BYTES": "314572800",
@@ -69,7 +65,7 @@
     "RECONCILE_ORPHAN_GRACE_SECONDS": "3600",
     "UPLOADS_ENABLED": "true",
     "UPLOAD_ORIGIN": "https://upload.jwander.net",
-    "CDN_ORIGIN": "https://files.jwander.net",
+    "CDN_ORIGIN": "https://cdn.jwander.net",
     "TURNSTILE_SITE_KEY": "0x4AAAAAAD3nBLCS0pyrqnEn",
   },
   "observability": {
