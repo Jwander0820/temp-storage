@@ -123,8 +123,141 @@
         </section>
       </div>
 
+      <section id="adminPage" class="admin-page is-hidden" aria-labelledby="admin-title">
+        <header class="admin-hero">
+          <div>
+            <p class="eyebrow">Invitation desk</p>
+            <h1 id="admin-title">邀請管理</h1>
+            <p>建立可撤銷的上傳邀請，並在桌面或手機直接複製連結、展示 QR Code。</p>
+          </div>
+          <button id="adminLogoutButton" class="text-button is-hidden" type="button">
+            結束管理 session
+          </button>
+        </header>
+
+        <section id="adminGate" class="admin-gate" aria-live="polite">
+          <p class="label">管理員驗證</p>
+          <h2>輸入管理 token</h2>
+          <p id="adminGateMessage">Token 只在這次驗證送往 Worker，不會保存在瀏覽器儲存空間。</p>
+          <label class="admin-token-field">
+            <span class="label">ADMIN_TOKEN</span>
+            <input
+              id="adminTokenInput"
+              type="password"
+              autocomplete="current-password"
+              inputmode="text"
+              placeholder="貼上管理 token"
+            />
+          </label>
+          <div id="adminTurnstileContainer" class="turnstile-slot" aria-live="polite"></div>
+          <button id="adminLoginButton" class="primary-button" type="button">
+            驗證並開啟管理頁
+          </button>
+        </section>
+
+        <div id="adminWorkspace" class="admin-workspace is-hidden">
+          <section class="invite-composer" aria-labelledby="create-invite-title">
+            <div class="section-heading">
+              <div>
+                <p class="label">建立邀請</p>
+                <h2 id="create-invite-title">設定使用範圍</h2>
+              </div>
+              <p>額度由所有使用同一連結的裝置共同消耗。</p>
+            </div>
+            <form id="inviteForm" class="invite-form">
+              <label class="form-field form-field--wide">
+                <span>標籤</span>
+                <input id="inviteLabelInput" name="label" maxlength="80" value="upload" required />
+              </label>
+              <label class="form-field">
+                <span>有效天數</span>
+                <input
+                  id="inviteDaysInput"
+                  name="days"
+                  type="number"
+                  min="1"
+                  max="365"
+                  value="7"
+                  required
+                />
+              </label>
+              <label class="form-field">
+                <span>最多檔案</span>
+                <input
+                  id="inviteFilesInput"
+                  name="files"
+                  type="number"
+                  min="1"
+                  max="100"
+                  value="10"
+                  required
+                />
+                <span class="checkbox-field">
+                  <input id="inviteUnlimitedFilesInput" name="unlimitedFiles" type="checkbox" />
+                  不限檔案數
+                </span>
+              </label>
+              <label class="form-field">
+                <span>總容量 MiB</span>
+                <input
+                  id="inviteMbInput"
+                  name="mb"
+                  type="number"
+                  min="1"
+                  max="3072"
+                  value="300"
+                  required
+                />
+              </label>
+              <button id="createInviteButton" class="primary-button form-submit" type="submit">
+                建立並複製邀請
+              </button>
+            </form>
+
+            <div id="createdInvite" class="created-invite is-hidden" aria-live="polite">
+              <p class="label">邀請已建立</p>
+              <strong id="createdInviteLabel"></strong>
+              <input id="createdInviteUrl" type="text" readonly aria-label="新邀請連結" />
+              <div class="created-invite__actions">
+                <button id="copyInviteButton" class="primary-button" type="button">複製連結</button>
+                <button id="showQrButton" class="secondary-button" type="button">
+                  顯示 QR Code
+                </button>
+              </div>
+            </div>
+          </section>
+
+          <section class="invitation-ledger" aria-labelledby="invitation-list-title">
+            <div class="section-heading">
+              <div>
+                <p class="label">邀請帳本</p>
+                <h2 id="invitation-list-title">目前邀請</h2>
+              </div>
+              <button id="refreshInvitationsButton" class="text-button" type="button">
+                重新整理
+              </button>
+            </div>
+            <div id="invitationList" class="invitation-list" aria-live="polite">
+              <p class="empty-state">正在讀取邀請。</p>
+            </div>
+          </section>
+        </div>
+      </section>
+
       <section id="filePage" class="file-page is-hidden" aria-live="polite"></section>
     </main>
+
+    <dialog id="qrDialog" class="qr-dialog" aria-labelledby="qr-title">
+      <div class="qr-dialog__heading">
+        <div>
+          <p class="label">掃描以開啟邀請</p>
+          <h2 id="qr-title">邀請 QR Code</h2>
+        </div>
+        <button id="closeQrButton" class="text-button" type="button">關閉</button>
+      </div>
+      <img id="qrImage" alt="邀請連結 QR Code" />
+      <p id="qrInviteLabel"></p>
+    </dialog>
 
     <div id="toastRegion" class="toast-region" aria-live="polite" aria-atomic="true"></div>
     <script type="module" src="/app.ts"></script>

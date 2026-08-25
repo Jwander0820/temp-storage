@@ -55,4 +55,39 @@ describe("Turnstile and optional access code", () => {
       verifyOptionalAccessCode({ UPLOAD_ACCESS_CODE: "" }, null),
     ).resolves.toBeUndefined();
   });
+
+  it("accepts official dummy responses only when explicit local test mode is enabled", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(() =>
+      Promise.resolve(Response.json({ success: true, hostname: "example.com", action: null })),
+    );
+    const officialTestBindings = {
+      TURNSTILE_SECRET_KEY: "1x0000000000000000000000000000000AA",
+      TURNSTILE_TEST_MODE: "true",
+      UPLOAD_ORIGIN: "http://localhost:8976",
+    };
+
+    await expect(
+      verifyTurnstile(officialTestBindings, "dummy-token", "127.0.0.1", undefined, "admin"),
+    ).resolves.toBeUndefined();
+
+    await expect(
+      verifyTurnstile(
+        { ...officialTestBindings, TURNSTILE_TEST_MODE: "false" },
+        "dummy-token",
+        "127.0.0.1",
+        undefined,
+        "admin",
+      ),
+    ).rejects.toMatchObject({ code: "TURNSTILE_FAILED", status: 403 });
+
+    await expect(
+      verifyTurnstile(
+        { ...officialTestBindings, TURNSTILE_SECRET_KEY: "production-secret" },
+        "dummy-token",
+        "127.0.0.1",
+        undefined,
+        "admin",
+      ),
+    ).rejects.toMatchObject({ code: "TURNSTILE_FAILED", status: 403 });
+  });
 });

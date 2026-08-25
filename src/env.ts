@@ -18,6 +18,7 @@ export interface AppConfig {
   readonly invitationMaxFiles: number;
   readonly invitationDefaultMaxBytes: number;
   readonly uploadSessionTtlSeconds: number;
+  readonly adminSessionTtlSeconds: number;
   readonly clientMaxFilesPerBatch: number;
   readonly clientMaxParallelUploads: number;
   readonly mediaPreviewCacheSeconds: number;
@@ -129,6 +130,10 @@ export function getConfig(env: Env): AppConfig {
     uploadSessionTtlSeconds: parsePositiveInteger(
       env.UPLOAD_SESSION_TTL_SECONDS,
       "UPLOAD_SESSION_TTL_SECONDS",
+    ),
+    adminSessionTtlSeconds: parsePositiveInteger(
+      env.ADMIN_SESSION_TTL_SECONDS,
+      "ADMIN_SESSION_TTL_SECONDS",
     ),
     clientMaxFilesPerBatch: parsePositiveInteger(
       env.CLIENT_MAX_FILES_PER_BATCH,

@@ -2,6 +2,7 @@ import type { Bindings } from "../bindings";
 import type { FileRecord } from "../domain/file";
 import { TEMP_OBJECT_PREFIX } from "../domain/storage";
 import { getConfig } from "../env";
+import { purgeExpiredAdminSessions } from "../repositories/admin-session-repository";
 import {
   listFilesForCleanup,
   markMissingObjectDeleted,
@@ -18,6 +19,7 @@ export interface CleanupResult {
   readonly expiredReservations: number;
   readonly purgedMetadata: number;
   readonly purgedInvitationSessions: number;
+  readonly purgedAdminSessions: number;
 }
 
 export interface ReconcileResult {
@@ -85,9 +87,10 @@ export async function runCleanup(
     }
   }
 
-  const [purgedMetadata, purgedInvitationSessions] = await Promise.all([
+  const [purgedMetadata, purgedInvitationSessions, purgedAdminSessions] = await Promise.all([
     purgeDeletedMetadata(env.DB, now - config.deletedMetadataRetentionSeconds),
     purgeExpiredSessions(env.DB, now),
+    purgeExpiredAdminSessions(env.DB, now),
   ]);
   const status = failedCount === 0 ? "completed" : deletedCount > 0 ? "partial" : "failed";
   await env.DB.prepare(
@@ -113,6 +116,7 @@ export async function runCleanup(
       expiredReservations,
       purgedMetadata,
       purgedInvitationSessions,
+      purgedAdminSessions,
     }),
   );
 
@@ -123,6 +127,7 @@ export async function runCleanup(
     expiredReservations,
     purgedMetadata,
     purgedInvitationSessions,
+    purgedAdminSessions,
   };
 }
 

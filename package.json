@@ -22,7 +22,7 @@
     "db:migrate:remote": "cross-env XDG_CONFIG_HOME=.wrangler/xdg wrangler d1 migrations apply DB --remote",
     "dev": "concurrently -k -n client,worker -c blue,green \"pnpm dev:client\" \"pnpm dev:worker\"",
     "dev:client": "vite build --watch",
-    "dev:worker": "cross-env XDG_CONFIG_HOME=.wrangler/xdg wrangler dev --test-scheduled",
+    "dev:worker": "cross-env XDG_CONFIG_HOME=.wrangler/xdg wrangler dev --test-scheduled --port 8976 --local-upstream localhost",
     "deploy": "pnpm build:client && cross-env XDG_CONFIG_HOME=.wrangler/xdg wrangler deploy",
     "deploy:cloudflare": "pnpm db:migrate:remote && cross-env XDG_CONFIG_HOME=.wrangler/xdg wrangler deploy",
     "format": "prettier --write .",
@@ -37,12 +37,14 @@
     "types:check": "cross-env XDG_CONFIG_HOME=.wrangler/xdg CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler types src/worker-configuration.d.ts --check && pnpm typecheck"
   },
   "dependencies": {
-    "hono": "latest"
+    "hono": "latest",
+    "qrcode": "^1.5.4"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "latest",
-    "@types/node": "latest",
     "@eslint/js": "latest",
+    "@types/node": "latest",
+    "@types/qrcode": "^1.5.6",
     "concurrently": "latest",
     "cross-env": "latest",
     "eslint": "latest",

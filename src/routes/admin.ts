@@ -14,8 +14,11 @@ import {
 import { getStorageUsage } from "../repositories/quota-repository";
 import { reconcileStorage, runCleanup } from "../services/cleanup-service";
 import { deleteFileAsAdmin } from "../services/deletion-service";
+import { issueAdminSession, revokeCurrentAdminSession } from "../services/admin-session-service";
 import { createInvitationTokenHash } from "../services/invitation-service";
+import { verifyTurnstile } from "../services/turnstile-service";
 import { randomToken } from "../utils/hash";
+import { timingSafeStringEqual } from "../utils/hash";
 
 const FILE_STATUSES = new Set<FileStatus>([
   "reserved",
@@ -31,6 +34,7 @@ interface CreateInvitationRequest {
   readonly label: string;
   readonly expiresInSeconds: number;
   readonly maxFiles: number;
+  readonly unlimitedFiles: boolean;
   readonly maxBytes: number;
 }
 
@@ -42,6 +46,7 @@ function parseCreateInvitation(value: unknown, config: AppConfig): CreateInvitat
   const label = record.label;
   const expiresInSeconds = record.expiresInSeconds ?? config.invitationDefaultTtlSeconds;
   const maxFiles = record.maxFiles ?? config.invitationDefaultMaxFiles;
+  const unlimitedFiles = record.unlimitedFiles ?? false;
   const maxBytes = record.maxBytes ?? config.invitationDefaultMaxBytes;
   if (
     typeof label !== "string" ||
@@ -53,6 +58,7 @@ function parseCreateInvitation(value: unknown, config: AppConfig): CreateInvitat
     !Number.isSafeInteger(maxFiles) ||
     (maxFiles as number) < 1 ||
     (maxFiles as number) > config.invitationMaxFiles ||
+    typeof unlimitedFiles !== "boolean" ||
     !Number.isSafeInteger(maxBytes) ||
     (maxBytes as number) < 1 ||
     (maxBytes as number) > config.maxStorageBytes
@@ -63,6 +69,7 @@ function parseCreateInvitation(value: unknown, config: AppConfig): CreateInvitat
     label: label.trim(),
     expiresInSeconds: expiresInSeconds as number,
     maxFiles: maxFiles as number,
+    unlimitedFiles,
     maxBytes: maxBytes as number,
   };
 }
@@ -106,7 +113,48 @@ function decodeCursor(cursor: string | undefined): {
 }
 
 export const adminRoutes = new Hono<AppEnv>();
+
+adminRoutes.post("/session", async (context) => {
+  context.header("Cache-Control", "private, no-store");
+  const authorization = context.req.header("Authorization");
+  const match = /^Bearer\s+(.+)$/u.exec(authorization ?? "");
+  const input = await context.req.json<unknown>();
+  const turnstileToken =
+    typeof input === "object" && input !== null
+      ? (input as Record<string, unknown>).turnstileToken
+      : null;
+  if (
+    match?.[1] === undefined ||
+    !(await timingSafeStringEqual(match[1], context.env.ADMIN_TOKEN)) ||
+    typeof turnstileToken !== "string"
+  ) {
+    throw new DomainError("INVALID_REQUEST", 401, "管理員驗證失敗。");
+  }
+  await verifyTurnstile(
+    context.env,
+    turnstileToken,
+    context.req.header("CF-Connecting-IP") ?? "local-development",
+    context.get("requestId"),
+    "admin",
+  );
+  const expiresAt = await issueAdminSession(context);
+  return context.json({
+    authenticated: true,
+    sessionExpiresAt: new Date(expiresAt * 1000).toISOString(),
+  });
+});
+
 adminRoutes.use("*", adminAuthMiddleware);
+
+adminRoutes.get("/session", (context) => {
+  context.header("Cache-Control", "private, no-store");
+  return context.json({ authenticated: true });
+});
+
+adminRoutes.delete("/session", async (context) => {
+  await revokeCurrentAdminSession(context);
+  return context.body(null, 204);
+});
 
 adminRoutes.get("/status", async (context) => {
   const [usage, statusCounts] = await Promise.all([
@@ -190,6 +238,7 @@ adminRoutes.post("/invitations", async (context) => {
     tokenHash: await createInvitationTokenHash(context.env.DELETE_TOKEN_PEPPER, token),
     label: input.label,
     maxFiles: input.maxFiles,
+    unlimitedFiles: input.unlimitedFiles,
     maxBytes: input.maxBytes,
     createdAt: now,
     expiresAt: now + input.expiresInSeconds,
@@ -202,6 +251,7 @@ adminRoutes.post("/invitations", async (context) => {
       inviteUrl: `${config.uploadOrigin}/invite#token=${token}`,
       token,
       maxFiles: input.maxFiles,
+      unlimitedFiles: input.unlimitedFiles,
       maxBytes: input.maxBytes,
       expiresAt: new Date((now + input.expiresInSeconds) * 1000).toISOString(),
     },
@@ -218,6 +268,7 @@ adminRoutes.get("/invitations", async (context) => {
       label: invitation.label,
       status: invitationStatus(invitation, now),
       maxFiles: invitation.max_files,
+      unlimitedFiles: invitation.unlimited_files === 1,
       maxBytes: invitation.max_bytes,
       usedFiles: invitation.used_files,
       usedBytes: invitation.used_bytes,

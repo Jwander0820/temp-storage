@@ -6,6 +6,7 @@ export interface UploadInvitation {
   readonly label: string;
   readonly status: InvitationStatus;
   readonly max_files: number;
+  readonly unlimited_files: 0 | 1;
   readonly max_bytes: number;
   readonly created_at: number;
   readonly expires_at: number;

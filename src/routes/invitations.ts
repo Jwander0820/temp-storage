@@ -42,6 +42,7 @@ function invitationPayload(
   invitation: {
     readonly label: string;
     readonly max_files: number;
+    readonly unlimited_files: 0 | 1;
     readonly max_bytes: number;
     readonly used_files: number;
     readonly used_bytes: number;
@@ -53,10 +54,14 @@ function invitationPayload(
     authenticated: true,
     label: invitation.label,
     maxFiles: invitation.max_files,
+    unlimitedFiles: invitation.unlimited_files === 1,
     maxBytes: invitation.max_bytes,
     usedFiles: invitation.used_files,
     usedBytes: invitation.used_bytes,
-    remainingFiles: Math.max(0, invitation.max_files - invitation.used_files),
+    remainingFiles:
+      invitation.unlimited_files === 1
+        ? null
+        : Math.max(0, invitation.max_files - invitation.used_files),
     remainingBytes: Math.max(0, invitation.max_bytes - invitation.used_bytes),
     expiresAt: new Date(invitation.expires_at * 1000).toISOString(),
     sessionExpiresAt: new Date(sessionExpiresAt * 1000).toISOString(),

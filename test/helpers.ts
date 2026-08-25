@@ -22,6 +22,7 @@ export async function resetState(maxBytes = 3221225472): Promise<void> {
   }
 
   await env.DB.batch([
+    env.DB.prepare("DELETE FROM admin_sessions"),
     env.DB.prepare("DELETE FROM upload_sessions"),
     env.DB.prepare("DELETE FROM upload_reservations"),
     env.DB.prepare("DELETE FROM rate_limit_events"),
@@ -39,11 +40,9 @@ export async function resetState(maxBytes = 3221225472): Promise<void> {
   ]);
 }
 
-export function mockSuccessfulTurnstile(): void {
+export function mockSuccessfulTurnstile(action: "invite" | "admin" = "invite"): void {
   vi.spyOn(globalThis, "fetch").mockImplementation(() =>
-    Promise.resolve(
-      Response.json({ success: true, hostname: "upload.example.test", action: "invite" }),
-    ),
+    Promise.resolve(Response.json({ success: true, hostname: "upload.example.test", action })),
   );
 }
 
@@ -61,6 +60,7 @@ export async function createTestInvitation(options?: {
     tokenHash: "0".repeat(64),
     label: "測試邀請",
     maxFiles: options?.maxFiles ?? 100,
+    unlimitedFiles: false,
     maxBytes: options?.maxBytes ?? 3221225472,
     createdAt: now - 1,
     expiresAt: options?.expiresAt ?? now + 2_592_000,
@@ -76,6 +76,7 @@ export async function createTestInvitationSession(): Promise<string> {
     tokenHash: await createInvitationTokenHash(env.DELETE_TOKEN_PEPPER, token),
     label: "測試邀請",
     maxFiles: 100,
+    unlimitedFiles: false,
     maxBytes: 3221225472,
     createdAt: now - 1,
     expiresAt: now + 2_592_000,

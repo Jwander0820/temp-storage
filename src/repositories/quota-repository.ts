@@ -79,10 +79,13 @@ export async function reserveQuotaAndCreateRecords(
              AND invitation.status = 'active'
              AND invitation.expires_at > ?4
              AND (
-               SELECT COUNT(*)
-               FROM rate_limit_events
-               WHERE invitation_id = ?5
-             ) < invitation.max_files
+               invitation.unlimited_files = 1
+               OR (
+                 SELECT COUNT(*)
+                 FROM rate_limit_events
+                 WHERE invitation_id = ?5
+               ) < invitation.max_files
+             )
              AND COALESCE((
                SELECT SUM(size_bytes)
                FROM rate_limit_events
@@ -184,6 +187,7 @@ export async function reserveQuotaAndCreateRecords(
          status,
          expires_at,
          max_files,
+         unlimited_files,
          max_bytes,
          (SELECT COUNT(*) FROM rate_limit_events WHERE invitation_id = ?1) AS used_files,
          COALESCE((
@@ -197,6 +201,7 @@ export async function reserveQuotaAndCreateRecords(
       status: "active" | "revoked";
       expires_at: number;
       max_files: number;
+      unlimited_files: 0 | 1;
       max_bytes: number;
       used_files: number;
       used_bytes: number;
@@ -209,7 +214,7 @@ export async function reserveQuotaAndCreateRecords(
     throw new DomainError("INVITATION_INVALID", 403, "邀請已失效，請向分享者取得新連結。");
   }
   if (
-    invitation.used_files >= invitation.max_files ||
+    (invitation.unlimited_files !== 1 && invitation.used_files >= invitation.max_files) ||
     invitation.used_bytes + input.sizeBytes > invitation.max_bytes
   ) {
     throw new DomainError("INVITATION_LIMIT_EXCEEDED", 429, "這份邀請的上傳額度已用完。");

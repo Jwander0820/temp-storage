@@ -11,6 +11,7 @@ async function createInvitation(options?: {
   maxFiles?: number;
   maxBytes?: number;
   expiresInSeconds?: number;
+  unlimitedFiles?: boolean;
 }) {
   const response = await exports.default.fetch(
     new Request("https://upload.example.test/api/admin/invitations", {
@@ -20,6 +21,7 @@ async function createInvitation(options?: {
         label: "朋友 A",
         expiresInSeconds: options?.expiresInSeconds ?? 86_400,
         maxFiles: options?.maxFiles ?? 3,
+        unlimitedFiles: options?.unlimitedFiles ?? false,
         maxBytes: options?.maxBytes ?? 1024,
       }),
     }),
@@ -30,6 +32,7 @@ async function createInvitation(options?: {
     token: string;
     inviteUrl: string;
     maxFiles: number;
+    unlimitedFiles: boolean;
     maxBytes: number;
     expiresAt: string;
   }>();
@@ -89,6 +92,7 @@ describe("upload invitations", () => {
       authenticated: true,
       label: "朋友 A",
       remainingFiles: 3,
+      unlimitedFiles: false,
       remainingBytes: 1024,
     });
   });
@@ -228,6 +232,45 @@ describe("upload invitations", () => {
       error: { code: "INVITATION_LIMIT_EXCEEDED" },
     });
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows unlimited file reservations while still enforcing the invitation byte limit", async () => {
+    const invitation = await createInvitation({
+      maxFiles: 1,
+      unlimitedFiles: true,
+      maxBytes: 2,
+    });
+    const { response, cookie } = await exchange(invitation.token);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      unlimitedFiles: true,
+      remainingFiles: null,
+    });
+
+    const reserve = (suffix: string) =>
+      exports.default.fetch(
+        new Request("https://upload.example.test/api/uploads/reserve", {
+          method: "POST",
+          headers: {
+            "CF-Connecting-IP": `198.51.100.${suffix}`,
+            "Content-Type": "application/json",
+            Cookie: cookie,
+          },
+          body: JSON.stringify({
+            filename: `${suffix}.txt`,
+            sizeBytes: 1,
+            declaredMime: "text/plain",
+          }),
+        }),
+      );
+
+    expect((await reserve("10")).status).toBe(200);
+    expect((await reserve("11")).status).toBe(200);
+    const byteLimited = await reserve("12");
+    expect(byteLimited.status).toBe(429);
+    await expect(byteLimited.json()).resolves.toMatchObject({
+      error: { code: "INVITATION_LIMIT_EXCEEDED" },
+    });
   });
 
   it("revokes all sessions for a single invitation", async () => {

@@ -11,6 +11,7 @@ export interface CreateInvitationInput {
   readonly tokenHash: string;
   readonly label: string;
   readonly maxFiles: number;
+  readonly unlimitedFiles: boolean;
   readonly maxBytes: number;
   readonly createdAt: number;
   readonly expiresAt: number;
@@ -42,14 +43,15 @@ export async function createInvitation(
   await database
     .prepare(
       `INSERT INTO upload_invitations (
-         id, token_hash, label, status, max_files, max_bytes, created_at, expires_at
-       ) VALUES (?1, ?2, ?3, 'active', ?4, ?5, ?6, ?7)`,
+         id, token_hash, label, status, max_files, unlimited_files, max_bytes, created_at, expires_at
+       ) VALUES (?1, ?2, ?3, 'active', ?4, ?5, ?6, ?7, ?8)`,
     )
     .bind(
       input.id,
       input.tokenHash,
       input.label,
       input.maxFiles,
+      input.unlimitedFiles ? 1 : 0,
       input.maxBytes,
       input.createdAt,
       input.expiresAt,

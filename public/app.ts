@@ -1,4 +1,5 @@
 import { limitUploadBatch } from "./upload-limits";
+import QRCode from "qrcode";
 
 interface PublicConfig {
   readonly maxFileBytes: number;
@@ -23,10 +24,11 @@ interface InvitationSessionInfo {
   readonly authenticated: true;
   readonly label: string;
   readonly maxFiles: number;
+  readonly unlimitedFiles: boolean;
   readonly maxBytes: number;
   readonly usedFiles: number;
   readonly usedBytes: number;
-  readonly remainingFiles: number;
+  readonly remainingFiles: number | null;
   readonly remainingBytes: number;
   readonly expiresAt: string;
   readonly sessionExpiresAt: string;
@@ -54,12 +56,36 @@ interface Reservation {
   readonly expiresAt: string;
 }
 
+interface AdminInvitation {
+  readonly id: string;
+  readonly label: string;
+  readonly status: "active" | "revoked" | "expired";
+  readonly maxFiles: number;
+  readonly unlimitedFiles: boolean;
+  readonly maxBytes: number;
+  readonly usedFiles: number;
+  readonly usedBytes: number;
+  readonly expiresAt: string;
+}
+
+interface CreatedInvitation {
+  readonly id: string;
+  readonly label: string;
+  readonly inviteUrl: string;
+  readonly maxFiles: number;
+  readonly unlimitedFiles: boolean;
+  readonly maxBytes: number;
+  readonly expiresAt: string;
+}
+
+type TurnstileAction = "invite" | "admin";
+
 interface TurnstileApi {
   render(
     container: HTMLElement,
     options: {
       sitekey: string;
-      action: "invite";
+      action: TurnstileAction;
       theme: "dark";
       size: "flexible";
       callback(token: string): void;
@@ -106,6 +132,7 @@ function elementById<T extends HTMLElement>(
 }
 
 const uploadPage = elementById("uploadPage", HTMLElement);
+const adminPage = elementById("adminPage", HTMLElement);
 const filePage = elementById("filePage", HTMLElement);
 const inviteGate = elementById("inviteGate", HTMLElement);
 const inviteGateTitle = elementById("inviteGateTitle", HTMLElement);
@@ -126,6 +153,31 @@ const chooseButton = elementById("chooseButton", HTMLButtonElement);
 const accessCodeField = elementById("accessCodeField", HTMLElement);
 const accessCodeInput = elementById("accessCodeInput", HTMLInputElement);
 const turnstileContainer = elementById("turnstileContainer", HTMLElement);
+const adminGate = elementById("adminGate", HTMLElement);
+const adminGateMessage = elementById("adminGateMessage", HTMLElement);
+const adminTokenInput = elementById("adminTokenInput", HTMLInputElement);
+const adminTurnstileContainer = elementById("adminTurnstileContainer", HTMLElement);
+const adminLoginButton = elementById("adminLoginButton", HTMLButtonElement);
+const adminLogoutButton = elementById("adminLogoutButton", HTMLButtonElement);
+const adminWorkspace = elementById("adminWorkspace", HTMLElement);
+const inviteForm = elementById("inviteForm", HTMLFormElement);
+const inviteLabelInput = elementById("inviteLabelInput", HTMLInputElement);
+const inviteDaysInput = elementById("inviteDaysInput", HTMLInputElement);
+const inviteFilesInput = elementById("inviteFilesInput", HTMLInputElement);
+const inviteUnlimitedFilesInput = elementById("inviteUnlimitedFilesInput", HTMLInputElement);
+const inviteMbInput = elementById("inviteMbInput", HTMLInputElement);
+const createInviteButton = elementById("createInviteButton", HTMLButtonElement);
+const createdInvite = elementById("createdInvite", HTMLElement);
+const createdInviteLabel = elementById("createdInviteLabel", HTMLElement);
+const createdInviteUrl = elementById("createdInviteUrl", HTMLInputElement);
+const copyInviteButton = elementById("copyInviteButton", HTMLButtonElement);
+const showQrButton = elementById("showQrButton", HTMLButtonElement);
+const refreshInvitationsButton = elementById("refreshInvitationsButton", HTMLButtonElement);
+const invitationList = elementById("invitationList", HTMLElement);
+const qrDialog = elementById("qrDialog", HTMLDialogElement);
+const qrImage = elementById("qrImage", HTMLImageElement);
+const qrInviteLabel = elementById("qrInviteLabel", HTMLElement);
+const closeQrButton = elementById("closeQrButton", HTMLButtonElement);
 const uploadQueue = elementById("uploadQueue", HTMLOListElement);
 const queueCount = elementById("queueCount", HTMLElement);
 const uploadHelp = elementById("upload-help", HTMLElement);
@@ -157,6 +209,14 @@ function requiredBoolean(record: Record<string, unknown>, key: string): boolean 
     throw new Error(`Invalid ${key} response.`);
   }
   return value;
+}
+
+function requiredNullableNumber(record: Record<string, unknown>, key: string): number | null {
+  const value = record[key];
+  if (value === null) {
+    return null;
+  }
+  return requiredNumber(record, key);
 }
 
 function parseConfig(value: unknown): PublicConfig {
@@ -196,10 +256,11 @@ function parseInvitationSession(value: unknown): InvitationSessionInfo {
     authenticated: true,
     label: requiredString(value, "label"),
     maxFiles: requiredNumber(value, "maxFiles"),
+    unlimitedFiles: requiredBoolean(value, "unlimitedFiles"),
     maxBytes: requiredNumber(value, "maxBytes"),
     usedFiles: requiredNumber(value, "usedFiles"),
     usedBytes: requiredNumber(value, "usedBytes"),
-    remainingFiles: requiredNumber(value, "remainingFiles"),
+    remainingFiles: requiredNullableNumber(value, "remainingFiles"),
     remainingBytes: requiredNumber(value, "remainingBytes"),
     expiresAt: requiredString(value, "expiresAt"),
     sessionExpiresAt: requiredString(value, "sessionExpiresAt"),
@@ -248,6 +309,42 @@ function parseReservation(value: unknown): Reservation {
   return {
     uploadId: requiredString(value, "uploadId"),
     uploadUrl: requiredString(value, "uploadUrl"),
+    expiresAt: requiredString(value, "expiresAt"),
+  };
+}
+
+function parseAdminInvitation(value: unknown): AdminInvitation {
+  if (!isRecord(value)) {
+    throw new Error("Invalid invitation response.");
+  }
+  const status = value.status;
+  if (status !== "active" && status !== "revoked" && status !== "expired") {
+    throw new Error("Invalid invitation status.");
+  }
+  return {
+    id: requiredString(value, "id"),
+    label: requiredString(value, "label"),
+    status,
+    maxFiles: requiredNumber(value, "maxFiles"),
+    unlimitedFiles: requiredBoolean(value, "unlimitedFiles"),
+    maxBytes: requiredNumber(value, "maxBytes"),
+    usedFiles: requiredNumber(value, "usedFiles"),
+    usedBytes: requiredNumber(value, "usedBytes"),
+    expiresAt: requiredString(value, "expiresAt"),
+  };
+}
+
+function parseCreatedInvitation(value: unknown): CreatedInvitation {
+  if (!isRecord(value)) {
+    throw new Error("Invalid invitation response.");
+  }
+  return {
+    id: requiredString(value, "id"),
+    label: requiredString(value, "label"),
+    inviteUrl: requiredString(value, "inviteUrl"),
+    maxFiles: requiredNumber(value, "maxFiles"),
+    unlimitedFiles: requiredBoolean(value, "unlimitedFiles"),
+    maxBytes: requiredNumber(value, "maxBytes"),
     expiresAt: requiredString(value, "expiresAt"),
   };
 }
@@ -327,10 +424,15 @@ class TurnstileTokenManager {
     reject(error: Error): void;
   }> = [];
 
+  constructor(
+    private readonly container: HTMLElement,
+    private readonly action: TurnstileAction,
+  ) {}
+
   async initialize(siteKey: string): Promise<void> {
     if (siteKey.length === 0 || siteKey.startsWith("replace-with-")) {
-      turnstileContainer.textContent = "上傳驗證尚未完成設定，功能暫停。";
-      turnstileContainer.classList.add("turnstile-slot--error");
+      this.container.textContent = "安全驗證尚未完成設定，功能暫停。";
+      this.container.classList.add("turnstile-slot--error");
       return;
     }
 
@@ -340,9 +442,9 @@ class TurnstileTokenManager {
       throw new Error("安全驗證載入失敗。");
     }
 
-    this.widgetId = api.render(turnstileContainer, {
+    this.widgetId = api.render(this.container, {
       sitekey: siteKey,
-      action: "invite",
+      action: this.action,
       theme: "dark",
       size: "flexible",
       callback: (token) => this.acceptToken(token),
@@ -432,7 +534,8 @@ class TurnstileTokenManager {
   }
 }
 
-const turnstile = new TurnstileTokenManager();
+const turnstile = new TurnstileTokenManager(turnstileContainer, "invite");
+const adminTurnstile = new TurnstileTokenManager(adminTurnstileContainer, "admin");
 
 function stateLabel(task: UploadTask): string {
   switch (task.state) {
@@ -806,7 +909,8 @@ async function loadInvitationSession(): Promise<InvitationSessionInfo | null> {
 function activateInvitation(session: InvitationSessionInfo): void {
   invitationLabel.textContent = session.label;
   invitationRemaining.textContent =
-    `剩餘 ${session.remainingFiles} 個檔案、${formatBytes(session.remainingBytes)}；` +
+    `${session.remainingFiles === null ? "不限檔案數" : `剩餘 ${session.remainingFiles} 個檔案`}、` +
+    `${formatBytes(session.remainingBytes)} 可用；` +
     `邀請於 ${formatDate(session.expiresAt)} 到期。`;
   inviteGate.classList.add("is-hidden");
   uploadWorkspace.classList.remove("is-hidden");
@@ -867,6 +971,278 @@ async function initializeUploadPage(): Promise<void> {
   activateInvitation(session);
   await loadStorage();
 }
+
+function setAdminAuthenticated(authenticated: boolean): void {
+  adminGate.classList.toggle("is-hidden", authenticated);
+  adminWorkspace.classList.toggle("is-hidden", !authenticated);
+  adminLogoutButton.classList.toggle("is-hidden", !authenticated);
+}
+
+async function hasAdminSession(): Promise<boolean> {
+  const response = await fetch("/api/admin/session");
+  if (response.status === 401) {
+    return false;
+  }
+  if (!response.ok) {
+    throw new Error(await responseError(response));
+  }
+  return true;
+}
+
+function invitationStatusLabel(status: AdminInvitation["status"]): string {
+  switch (status) {
+    case "active":
+      return "使用中";
+    case "revoked":
+      return "已撤銷";
+    case "expired":
+      return "已到期";
+  }
+}
+
+function renderInvitations(invitations: AdminInvitation[]): void {
+  if (invitations.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "empty-state";
+    empty.textContent = "尚未建立邀請。從左側設定額度後即可產生第一份邀請。";
+    invitationList.replaceChildren(empty);
+    return;
+  }
+
+  invitationList.replaceChildren(
+    ...invitations.map((invitation) => {
+      const card = document.createElement("article");
+      card.className = "invitation-card";
+
+      const heading = document.createElement("div");
+      heading.className = "invitation-card__heading";
+      const label = document.createElement("strong");
+      label.textContent = invitation.label;
+      const status = document.createElement("span");
+      status.className =
+        invitation.status === "active"
+          ? "status-pill status-pill--active"
+          : "status-pill status-pill--inactive";
+      status.textContent = invitationStatusLabel(invitation.status);
+      heading.append(label, status);
+
+      const usage = document.createElement("div");
+      usage.className = "invitation-card__usage";
+      const files = document.createElement("span");
+      files.textContent = invitation.unlimitedFiles
+        ? `${invitation.usedFiles} 個 reservation（不限檔案數）`
+        : `${invitation.usedFiles} / ${invitation.maxFiles} 個 reservation`;
+      const bytes = document.createElement("span");
+      bytes.textContent = `${formatBytes(invitation.usedBytes)} / ${formatBytes(invitation.maxBytes)}`;
+      usage.append(files, bytes);
+
+      const expiry = document.createElement("p");
+      expiry.className = "invitation-card__expiry";
+      expiry.textContent = `到期：${formatDate(invitation.expiresAt)}`;
+
+      card.append(heading, usage, expiry);
+      if (invitation.status === "active") {
+        const actions = document.createElement("div");
+        actions.className = "invitation-card__actions";
+        const revoke = document.createElement("button");
+        revoke.type = "button";
+        revoke.className = "secondary-button danger-button";
+        revoke.textContent = "撤銷邀請";
+        revoke.addEventListener("click", () => {
+          if (!window.confirm(`撤銷「${invitation.label}」？所有相關上傳 session 也會失效。`)) {
+            return;
+          }
+          revoke.disabled = true;
+          void fetch(`/api/admin/invitations/${encodeURIComponent(invitation.id)}`, {
+            method: "DELETE",
+          })
+            .then(async (response) => {
+              if (!response.ok) {
+                throw new Error(await responseError(response));
+              }
+              showToast("邀請已撤銷");
+              await loadAdminInvitations();
+            })
+            .catch((error: unknown) => {
+              showToast(error instanceof Error ? error.message : "無法撤銷邀請。", "error");
+              revoke.disabled = false;
+            });
+        });
+        actions.append(revoke);
+        card.append(actions);
+      }
+      return card;
+    }),
+  );
+}
+
+async function loadAdminInvitations(): Promise<void> {
+  invitationList.innerHTML = '<p class="empty-state">正在讀取邀請。</p>';
+  const response = await fetch("/api/admin/invitations");
+  if (!response.ok) {
+    throw new Error(await responseError(response));
+  }
+  const payload: unknown = await response.json();
+  if (!isRecord(payload) || !Array.isArray(payload.invitations)) {
+    throw new Error("Invalid invitation list response.");
+  }
+  renderInvitations(payload.invitations.map(parseAdminInvitation));
+}
+
+async function createAdminInvitation(): Promise<CreatedInvitation> {
+  const days = Number(inviteDaysInput.value);
+  const maxFiles = Number(inviteFilesInput.value);
+  const unlimitedFiles = inviteUnlimitedFilesInput.checked;
+  const megabytes = Number(inviteMbInput.value);
+  const label = inviteLabelInput.value.trim();
+  if (
+    label.length === 0 ||
+    !Number.isInteger(days) ||
+    days < 1 ||
+    days > 365 ||
+    (!unlimitedFiles && (!Number.isInteger(maxFiles) || maxFiles < 1 || maxFiles > 100)) ||
+    !Number.isFinite(megabytes) ||
+    megabytes <= 0
+  ) {
+    throw new Error("請確認標籤、天數、檔案數與容量設定。 ");
+  }
+  const response = await fetch("/api/admin/invitations", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      label,
+      expiresInSeconds: days * 86_400,
+      maxFiles,
+      unlimitedFiles,
+      maxBytes: Math.round(megabytes * 1024 * 1024),
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(await responseError(response));
+  }
+  return parseCreatedInvitation(await response.json());
+}
+
+async function showInvitationQr(): Promise<void> {
+  if (createdInviteUrl.value.length === 0) {
+    return;
+  }
+  showQrButton.disabled = true;
+  try {
+    qrImage.src = await QRCode.toDataURL(createdInviteUrl.value, {
+      errorCorrectionLevel: "M",
+      margin: 2,
+      width: 680,
+      color: { dark: "#07111d", light: "#ffffff" },
+    });
+    qrInviteLabel.textContent = createdInviteLabel.textContent;
+    qrDialog.showModal();
+  } finally {
+    showQrButton.disabled = false;
+  }
+}
+
+async function initializeAdminPage(): Promise<void> {
+  uploadPage.classList.add("is-hidden");
+  filePage.classList.add("is-hidden");
+  adminPage.classList.remove("is-hidden");
+  await loadConfig();
+  if (await hasAdminSession()) {
+    setAdminAuthenticated(true);
+    await loadAdminInvitations();
+    return;
+  }
+  setAdminAuthenticated(false);
+  await adminTurnstile.initialize(config?.turnstileSiteKey ?? "");
+}
+
+adminLoginButton.addEventListener("click", () => {
+  const adminToken = adminTokenInput.value.trim();
+  if (adminToken.length === 0) {
+    adminGateMessage.textContent = "請先輸入管理 token。";
+    adminTokenInput.focus();
+    return;
+  }
+  adminLoginButton.disabled = true;
+  const controller = new AbortController();
+  void adminTurnstile
+    .takeToken(controller.signal)
+    .then(async (turnstileToken) => {
+      const response = await fetch("/api/admin/session", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${adminToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ turnstileToken }),
+      });
+      adminTokenInput.value = "";
+      if (!response.ok) {
+        throw new Error(await responseError(response));
+      }
+      setAdminAuthenticated(true);
+      await loadAdminInvitations();
+    })
+    .catch((error: unknown) => {
+      adminTokenInput.value = "";
+      adminGateMessage.textContent = error instanceof Error ? error.message : "管理員驗證失敗。";
+      adminTurnstile.refresh();
+      adminLoginButton.disabled = false;
+    });
+});
+
+adminLogoutButton.addEventListener("click", () => {
+  adminLogoutButton.disabled = true;
+  void fetch("/api/admin/session", { method: "DELETE" }).finally(() => {
+    window.location.reload();
+  });
+});
+
+inviteForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  createInviteButton.disabled = true;
+  void createAdminInvitation()
+    .then(async (invitation) => {
+      createdInviteLabel.textContent =
+        `${invitation.label} · ${
+          invitation.unlimitedFiles ? "不限檔案數" : `${invitation.maxFiles} 個`
+        } · ${formatBytes(invitation.maxBytes)} · ` + `到期 ${formatDate(invitation.expiresAt)}`;
+      createdInviteUrl.value = invitation.inviteUrl;
+      createdInvite.classList.remove("is-hidden");
+      await copyText(invitation.inviteUrl);
+      await loadAdminInvitations();
+    })
+    .catch((error: unknown) => {
+      showToast(error instanceof Error ? error.message : "無法建立邀請。", "error");
+    })
+    .finally(() => {
+      createInviteButton.disabled = false;
+    });
+});
+
+inviteUnlimitedFilesInput.addEventListener("change", () => {
+  inviteFilesInput.disabled = inviteUnlimitedFilesInput.checked;
+});
+
+copyInviteButton.addEventListener("click", () => {
+  void copyText(createdInviteUrl.value);
+});
+showQrButton.addEventListener("click", () => {
+  void showInvitationQr().catch((error: unknown) => {
+    showToast(error instanceof Error ? error.message : "無法產生 QR Code。", "error");
+  });
+});
+closeQrButton.addEventListener("click", () => qrDialog.close());
+refreshInvitationsButton.addEventListener("click", () => {
+  refreshInvitationsButton.disabled = true;
+  void loadAdminInvitations()
+    .catch((error: unknown) => {
+      showToast(error instanceof Error ? error.message : "無法讀取邀請。", "error");
+    })
+    .finally(() => {
+      refreshInvitationsButton.disabled = false;
+    });
+});
 
 function mediaElement(file: PublicFile): HTMLElement | null {
   if (file.previewUrl === null) {
@@ -1026,7 +1402,11 @@ document.addEventListener("paste", (event) => {
 });
 
 const filePageMatch = /^\/file\/([^/]+)$/u.exec(window.location.pathname);
-if (filePageMatch?.[1] !== undefined) {
+if (window.location.pathname === "/admin" || window.location.pathname === "/admin/") {
+  void initializeAdminPage().catch((error: unknown) => {
+    adminGateMessage.textContent = error instanceof Error ? error.message : "管理頁載入失敗。";
+  });
+} else if (filePageMatch?.[1] !== undefined) {
   void loadFilePage(decodeURIComponent(filePageMatch[1]));
 } else {
   void initializeUploadPage().catch((error: unknown) => {

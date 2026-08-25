@@ -492,6 +492,276 @@ button:disabled {
   outline: none;
 }
 
+.secondary-button {
+  min-height: 44px;
+  padding: 11px 16px;
+  border: 1px solid rgba(121, 161, 255, 0.34);
+  border-radius: 11px;
+  background: rgba(75, 125, 255, 0.08);
+  color: var(--mist);
+  cursor: pointer;
+}
+
+.secondary-button:is(:hover, :focus-visible) {
+  border-color: var(--blue-bright);
+  background: rgba(75, 125, 255, 0.16);
+  outline: none;
+}
+
+.admin-page {
+  padding: clamp(52px, 8vw, 96px) 0;
+}
+
+.admin-hero {
+  display: flex;
+  gap: 28px;
+  align-items: flex-end;
+  justify-content: space-between;
+  margin-bottom: 34px;
+}
+
+.admin-hero h1 {
+  margin: 14px 0 12px;
+  font-family: "Segoe UI Variable Display", "Noto Sans TC", sans-serif;
+  font-size: clamp(2.8rem, 7vw, 5.6rem);
+  font-weight: 560;
+  letter-spacing: -0.065em;
+  line-height: 0.98;
+}
+
+.admin-hero p:last-child,
+.section-heading > p {
+  max-width: 620px;
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.admin-gate {
+  display: grid;
+  gap: 16px;
+  width: min(100%, 640px);
+  padding: clamp(24px, 5vw, 42px);
+  border: 1px solid rgba(121, 161, 255, 0.3);
+  border-radius: 24px;
+  background: rgba(18, 34, 56, 0.62);
+  box-shadow: var(--shadow);
+}
+
+.admin-gate h2,
+.section-heading h2 {
+  margin: 8px 0 0;
+  font-family: "Segoe UI Variable Display", "Noto Sans TC", sans-serif;
+  font-size: clamp(1.5rem, 3vw, 2.2rem);
+  font-weight: 560;
+  letter-spacing: -0.04em;
+}
+
+.admin-gate > p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.admin-token-field,
+.form-field {
+  display: grid;
+  gap: 8px;
+}
+
+.admin-token-field input,
+.form-field input,
+.created-invite input {
+  width: 100%;
+  min-height: 46px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: rgba(7, 17, 29, 0.72);
+  color: var(--mist);
+}
+
+.form-field .checkbox-field {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-height: 28px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.form-field .checkbox-field input {
+  width: 18px;
+  min-height: 18px;
+  margin: 0;
+  accent-color: var(--blue-bright);
+}
+
+.form-field > input:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+.admin-token-field input:focus,
+.form-field input:focus,
+.created-invite input:focus {
+  border-color: var(--blue-bright);
+  outline: 3px solid rgba(121, 161, 255, 0.16);
+}
+
+.admin-workspace {
+  display: grid;
+  grid-template-columns: minmax(300px, 0.82fr) minmax(360px, 1.18fr);
+  gap: 22px;
+  align-items: start;
+}
+
+.invite-composer,
+.invitation-ledger {
+  padding: clamp(20px, 3vw, 30px);
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background: rgba(11, 22, 36, 0.78);
+  box-shadow: var(--shadow);
+}
+
+.section-heading {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.section-heading > p {
+  max-width: 270px;
+  font-size: 0.86rem;
+  text-align: right;
+}
+
+.invite-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.form-field--wide,
+.form-submit {
+  grid-column: 1 / -1;
+}
+
+.form-field > span {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.created-invite {
+  display: grid;
+  gap: 12px;
+  margin-top: 24px;
+  padding: 18px;
+  border-left: 3px solid var(--amber);
+  background: rgba(241, 180, 76, 0.07);
+}
+
+.created-invite__actions,
+.invitation-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.invitation-list {
+  display: grid;
+  gap: 12px;
+}
+
+.invitation-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px 0;
+  border-top: 1px solid var(--line);
+}
+
+.invitation-card:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.invitation-card__heading,
+.invitation-card__usage {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.invitation-card__heading strong {
+  overflow-wrap: anywhere;
+  font-size: 1.05rem;
+}
+
+.invitation-card__usage,
+.invitation-card__expiry,
+.empty-state {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.6;
+}
+
+.status-pill--active {
+  color: #bff4dc;
+}
+
+.status-pill--inactive {
+  color: #ffc5c8;
+}
+
+.danger-button {
+  border-color: rgba(255, 109, 115, 0.3);
+  color: #ffc5c8;
+}
+
+.qr-dialog {
+  width: min(92vw, 440px);
+  padding: 24px;
+  border: 1px solid rgba(121, 161, 255, 0.34);
+  border-radius: 22px;
+  background: #0b1624;
+  box-shadow: var(--shadow);
+  color: var(--mist);
+}
+
+.qr-dialog::backdrop {
+  background: rgba(2, 8, 15, 0.82);
+  backdrop-filter: blur(8px);
+}
+
+.qr-dialog__heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.qr-dialog h2 {
+  margin: 8px 0 0;
+}
+
+.qr-dialog img {
+  display: block;
+  width: min(100%, 340px);
+  margin: 24px auto 14px;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.qr-dialog > p {
+  margin: 0;
+  color: var(--muted);
+  text-align: center;
+}
+
 .file-page {
   max-width: 900px;
   margin: 0 auto;
@@ -643,6 +913,36 @@ button:disabled {
   .upload-item__actions {
     max-width: none;
     justify-content: flex-start;
+  }
+
+  .admin-hero,
+  .section-heading,
+  .invitation-card__usage {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .admin-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .section-heading > p {
+    max-width: none;
+    text-align: left;
+  }
+
+  .invite-form {
+    grid-template-columns: 1fr;
+  }
+
+  .form-field--wide,
+  .form-submit {
+    grid-column: auto;
+  }
+
+  .created-invite__actions > *,
+  .invitation-card__actions > * {
+    flex: 1 1 140px;
   }
 }
 

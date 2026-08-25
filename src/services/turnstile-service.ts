@@ -3,8 +3,11 @@ import { timingSafeStringEqual } from "../utils/hash";
 
 interface TurnstileBindings {
   readonly TURNSTILE_SECRET_KEY: string;
+  readonly TURNSTILE_TEST_MODE?: string;
   readonly UPLOAD_ORIGIN: string;
 }
+
+const OFFICIAL_ALWAYS_PASS_TEST_SECRET = "1x0000000000000000000000000000000AA";
 
 interface AccessCodeBindings {
   readonly UPLOAD_ACCESS_CODE?: string;
@@ -31,6 +34,7 @@ export async function verifyTurnstile(
   token: string,
   remoteIp: string,
   requestId?: string,
+  expectedAction: "invite" | "admin" = "invite",
 ): Promise<void> {
   if (token.length === 0 || token.length > 2048) {
     throw new DomainError("TURNSTILE_FAILED", 403, "人機驗證失敗，請重新操作。");
@@ -54,12 +58,15 @@ export async function verifyTurnstile(
 
   const payload: unknown = await response.json<unknown>();
   const expectedHostname = new URL(env.UPLOAD_ORIGIN).hostname;
+  const officialTestMode =
+    env.TURNSTILE_TEST_MODE === "true" &&
+    env.TURNSTILE_SECRET_KEY === OFFICIAL_ALWAYS_PASS_TEST_SECRET;
   if (
     !response.ok ||
     !isTurnstileResult(payload) ||
     !payload.success ||
-    payload.hostname !== expectedHostname ||
-    payload.action !== "invite"
+    (!officialTestMode &&
+      (payload.hostname !== expectedHostname || payload.action !== expectedAction))
   ) {
     console.warn(
       JSON.stringify({

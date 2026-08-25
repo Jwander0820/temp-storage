@@ -145,6 +145,7 @@ Cloudflare，不放 GitHub Builds variables，也不可提交 repository。設�
 | 邀請預設／最多檔案        | `INVITATION_DEFAULT_MAX_FILES` / `INVITATION_MAX_FILES`                                        |         10／100 |
 | 邀請預設容量              | `INVITATION_DEFAULT_MAX_BYTES`                                                                 |         300 MiB |
 | 上傳 session              | `UPLOAD_SESSION_TTL_SECONDS`                                                                   |         12 小時 |
+| 管理 session              | `ADMIN_SESSION_TTL_SECONDS`                                                                    |          4 小時 |
 | 前端單批／並行            | `CLIENT_MAX_FILES_PER_BATCH` / `CLIENT_MAX_PARALLEL_UPLOADS`                                   |           10／2 |
 | 公開預覽快取              | `MEDIA_PREVIEW_CACHE_SECONDS`                                                                  |          1 小時 |
 | 公開設定快取              | `PUBLIC_CONFIG_CACHE_SECONDS`                                                                  |          1 分鐘 |
@@ -243,8 +244,11 @@ pnpm dev
 ```
 
 Wrangler 提供 Worker、D1 與 R2 local environment；Vite watch 會持續重建
-`dist/client`。本機 Turnstile 請使用 Cloudflare 提供的測試 widget key 與對應測試
-secret，不要把正式 secret 放入版本控制。
+`dist/client`，管理頁位於 `http://localhost:8976/admin`。本機固定使用 8976，避開部分
+Windows/Hyper-V 會保留的 8787 port range；`--local-upstream localhost` 也避免正式 custom
+domain route 讓本機 hostname boundary 誤判。本機 Turnstile 請使用 Cloudflare 提供的測試
+widget key 與對應測試 secret，並保留 `.dev.vars` 的 `TURNSTILE_TEST_MODE=true`。此模式只在
+secret 完全符合官方 always-pass dummy secret 時生效；不要把正式 secret 放入版本控制。
 
 若 `.dev.vars` 存在，Wrangler 會優先使用它；若不用 `.dev.vars`，也可以直接在 `.env`
 放入同名非秘密參數作為本機覆寫。兩者都已被 Git 忽略。
@@ -348,9 +352,13 @@ POST   /api/uploads/reserve
 PUT    /api/uploads/:uploadId
 ```
 
-管理 API 使用 `Authorization: Bearer {ADMIN_TOKEN}`：
+管理 API 可使用 `Authorization: Bearer {ADMIN_TOKEN}`，或先在 `/admin` 以管理 token 與
+Turnstile 換取短效 HttpOnly admin session：
 
 ```text
+POST   /api/admin/session
+GET    /api/admin/session
+DELETE /api/admin/session
 GET    /api/admin/status
 GET    /api/admin/files
 POST   /api/admin/invitations
@@ -360,6 +368,11 @@ POST   /api/admin/cleanup
 POST   /api/admin/reconcile
 DELETE /api/admin/files/:fileId
 ```
+
+`/admin` 是桌面與手機共用的響應式管理頁，可建立、複製、顯示 QR Code、列出與撤銷邀請。
+QR Code 完全在瀏覽器內產生，不會把邀請 token 傳給第三方服務。永久 `ADMIN_TOKEN` 只用於
+建立 admin session，不寫入 localStorage、sessionStorage 或前端 cookie；後續管理請求只帶
+HttpOnly session cookie。CLI 與自動化工具仍可直接使用 Bearer token。
 
 `GET /api/admin/files` 支援 `status`、`mime`、`createdBefore`、`createdAfter`、
 `expiresBefore`、`cursor` 與最大 100 的 `limit`。
@@ -408,6 +421,10 @@ ADMIN_TOKEN=你的管理Token
 
 建立成功後，指令會顯示邀請 ID、到期時間與 `inviteUrl`，並在 Windows 自動將網址複製
 到剪貼簿。`ADMIN_TOKEN` 只從環境變數讀取，不應寫入 repository。
+
+手機或電腦可改用 `/admin` 管理頁建立邀請。勾選「不限檔案數」時，只取消該邀請的
+檔案 reservation 數量上限；總容量仍須設定，且每 IP、每小時、每日與全站容量限制仍會
+照常執行。
 
 也可以直接呼叫管理 API：
 
@@ -461,6 +478,8 @@ Invoke-RestMethod `
 - delete token 為 256-bit random，D1 只保存 peppered SHA-256 hash。
 - invitation token 與 session token 都是 256-bit random；D1 只保存帶 domain separation
   的 peppered SHA-256 hash。
+- admin session token 也是 256-bit random，D1 只保存 domain-separated peppered hash；
+  永久管理 token 不會由管理頁保存於瀏覽器儲存空間。
 - 每個邀請可獨立限制有效期、檔案數、總 bytes 並撤銷；所有 `/api/uploads/*` 都要求
   session，且 raw PUT 必須與建立 reservation 的邀請相同。
 - Turnstile Siteverify 在兌換 session 時比對 `hostname=upload.jwander.net` 與
