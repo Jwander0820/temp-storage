@@ -4,6 +4,20 @@
 負責驗證、配額、上傳、受控下載、刪除與排程；檔案本體放在既有的 `cdn` R2 bucket
 之 `temp-storage/objects/` namespace，metadata 與容量帳本放在獨立 D1。
 
+## 目前正式環境
+
+- 原始碼：GitHub private repository `Jwander0820/temp-storage`，production branch 為 `main`。
+- Worker：`jwander-temp-storage`，公開入口為 `https://upload.jwander.net`。
+- 管理頁：`https://upload.jwander.net/admin`，桌面與手機共用。
+- 公開媒體：沿用既有 `cdn` R2 bucket 與 `https://cdn.jwander.net` Custom Domain。
+- Metadata／邀請／session／配額：D1 `jwander-temp-storage-db`，目前 migrations 到
+  `0005_invitation_unlimited_files.sql`。
+- 自動部署：GitHub 已連接 Cloudflare Workers Builds；推送新的 commit 到 `main` 後，依序
+  執行 `pnpm run build:client` 與 `pnpm run deploy:cloudflare`。
+
+
+Build 結果可在 **Workers & Pages → jwander-temp-storage → Deployments → Build history** 查看。
+
 ## 預設服務限制
 
 - 全站容量：3 GiB。
@@ -64,18 +78,19 @@ pnpm install
 Assets 的 Workers 專案。GitHub 保存原始碼；Cloudflare Workers Builds 會在每次推送
 `main` 後建置前端、套用 D1 migrations，再部署 Worker 與前端資產。
 
-### Cloudflare 前置資源
+### 現有 Cloudflare 資源
 
-先在 Cloudflare Dashboard 建立：
+正式環境目前使用：
 
 1. 沿用 R2 bucket：`cdn`；確認 `cdn.jwander.net` Custom Domain 為 active，且不修改現有物件。
-2. 建立 D1 database：`jwander-temp-storage-db`，複製其 UUID。
-3. Turnstile widget：只允許 `upload.jwander.net`，記下 site key 與 secret key。
+2. D1 database：`jwander-temp-storage-db`；binding 與 UUID 已寫入 `wrangler.jsonc`。
+3. Turnstile widget：正式 hostname 為 `upload.jwander.net`；site key 已寫入公開設定，secret
+   只保存在 Worker runtime secrets。
 
-接著在 [`wrangler.jsonc`](./wrangler.jsonc)：
+若要在另一個 Cloudflare 帳號重建環境，再於 [`wrangler.jsonc`](./wrangler.jsonc)：
 
-1. 將 `database_id` 的全零 placeholder 換成 D1 UUID。
-2. 將 `TURNSTILE_SITE_KEY` 換成 Turnstile site key；site key 可以提交 Git。
+1. 將 `database_id` 換成新 D1 UUID。
+2. 將 `TURNSTILE_SITE_KEY` 換成新 Turnstile site key；site key 可以提交 Git。
 3. 確認 Worker 只宣告 `upload.jwander.net` Custom Domain；`cdn.jwander.net` 繼續由既有
    `cdn` R2 bucket 提供，不由 Worker 接管。
 
@@ -88,16 +103,17 @@ repository，避免 Git 部署產生無法追蹤的新資源。
 本專案的 `.gitignore` 已排除 secrets、套件、建置結果與本機 Cloudflare 狀態。請勿強制
 加入 `.dev.vars`、`.env`、`node_modules`、`dist` 或 `.wrangler`。
 
-建立 GitHub private repository 後，在本機只需要設定 remote 並推送：
+目前 remote 已設定為 `https://github.com/Jwander0820/temp-storage.git`。日常更新只需確認
+變更、建立 commit，再推送 `main`：
 
 ```powershell
-git remote add origin https://github.com/<你的帳號>/<repository>.git
-git push -u origin main
+git status
+git push origin main
 ```
 
 ### 連接 Workers Builds
 
-在 Cloudflare Dashboard：
+GitHub repository 已完成連接。若日後需要重新連接或檢查設定，在 Cloudflare Dashboard：
 
 1. 進入 **Workers & Pages → jwander-temp-storage → Settings → Builds**。
 2. 選擇 **Connect**，連接 GitHub repository `Jwander0820/temp-storage`。
@@ -113,7 +129,8 @@ git push -u origin main
 使用的 API token 必須包含 Workers Scripts、D1、R2 與 Workers Routes 的 Edit 權限；若
 自動建立的 token 缺少 D1 權限，請在 Build settings 改用具有 D1 Edit 的自訂 token。
 
-首次 Worker 建立後，到 **Settings → Variables & Secrets** 加入以下 runtime secrets：
+正式 Worker 必須在 **Settings → Variables & Secrets** 保留以下 runtime secrets；建立新環境
+時需重新加入，GitHub 連線不會替你複製這些值：
 
 ```text
 TURNSTILE_SECRET_KEY
@@ -162,7 +179,10 @@ Worker 啟動時會驗證設定關係，例如邀請必須符合 `min <= default
 `temp-storage/objects/` prefix 新增 90 天 expiration rule。這是一次性設定，不應在每次
 Git 部署時重複建立。
 
-## 建立 Cloudflare resources
+## 重建 Cloudflare resources
+
+以下命令只用於建立新環境或修復資源；目前正式的 D1、R2、Turnstile 與 Custom Domain
+都已存在，日常 GitHub 部署不需要重跑資源建立命令。
 
 先登入：
 
@@ -170,16 +190,15 @@ Git 部署時重複建立。
 pnpm exec wrangler login
 ```
 
-確認既有 R2 bucket 並建立 D1：
+確認既有 R2 bucket；只有新環境才建立 D1：
 
 ```powershell
 pnpm run cf:r2:info
 pnpm run cf:d1:create
 ```
 
-`cf:d1:create` 會輸出 database UUID。將
-[`wrangler.jsonc`](./wrangler.jsonc) 中的
-`00000000-0000-0000-0000-000000000000` 換成該 UUID。
+`cf:d1:create` 會輸出 database UUID。新環境需將 [`wrangler.jsonc`](./wrangler.jsonc) 的
+`database_id` 換成該 UUID；正式環境目前已完成。
 
 套用正式環境 migrations：
 
@@ -279,6 +298,10 @@ binding，涵蓋配額邊界、檔案政策、串流上傳、Range/HEAD、刪除
 reconciliation。
 
 ## 部署
+
+推薦流程是提交並 push 到 `main`，交由 Workers Builds 自動套用 migrations 與部署。下方
+`pnpm run deploy:cloudflare` 是需要跳過 GitHub 自動部署時的手動備援，不要在同一次更新
+同時使用兩種方式重複部署。
 
 確認以下項目後部署：
 
