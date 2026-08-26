@@ -295,6 +295,49 @@ describe("upload invitations", () => {
     ).toBe(401);
   });
 
+  it("reissues an active invitation while preserving its quota and revoking old access", async () => {
+    const invitation = await createInvitation({ maxFiles: 7, maxBytes: 2048 });
+    const oldSession = await exchange(invitation.token);
+    expect(oldSession.response.status).toBe(200);
+
+    const reissuedResponse = await exports.default.fetch(
+      new Request(
+        `https://upload.example.test/api/admin/invitations/${invitation.id}/reissue`,
+        { method: "POST", headers: adminHeaders },
+      ),
+    );
+    expect(reissuedResponse.status).toBe(200);
+    expect(reissuedResponse.headers.get("Cache-Control")).toBe("private, no-store");
+    const reissued = await reissuedResponse.json<{
+      id: string;
+      token: string;
+      inviteUrl: string;
+      maxFiles: number;
+      maxBytes: number;
+      expiresAt: string;
+    }>();
+    expect(reissued).toMatchObject({
+      id: invitation.id,
+      maxFiles: 7,
+      maxBytes: 2048,
+      expiresAt: invitation.expiresAt,
+    });
+    expect(reissued.token).not.toBe(invitation.token);
+    expect(reissued.inviteUrl).toContain(reissued.token);
+
+    expect((await exchange(invitation.token)).response.status).toBe(403);
+    expect(
+      (
+        await exports.default.fetch(
+          new Request("https://upload.example.test/api/invitations/session", {
+            headers: { Cookie: oldSession.cookie },
+          }),
+        )
+      ).status,
+    ).toBe(401);
+    expect((await exchange(reissued.token)).response.status).toBe(200);
+  });
+
   it("prevents one invitation session from using another invitation's reservation", async () => {
     const first = await createInvitation();
     const firstSession = await exchange(first.token);

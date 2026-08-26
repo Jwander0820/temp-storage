@@ -65,7 +65,9 @@ interface AdminInvitation {
   readonly maxBytes: number;
   readonly usedFiles: number;
   readonly usedBytes: number;
+  readonly createdAt: string;
   readonly expiresAt: string;
+  readonly revokedAt: string | null;
 }
 
 interface CreatedInvitation {
@@ -173,7 +175,8 @@ const createdInviteUrl = elementById("createdInviteUrl", HTMLInputElement);
 const copyInviteButton = elementById("copyInviteButton", HTMLButtonElement);
 const showQrButton = elementById("showQrButton", HTMLButtonElement);
 const refreshInvitationsButton = elementById("refreshInvitationsButton", HTMLButtonElement);
-const invitationList = elementById("invitationList", HTMLElement);
+const activeInvitationList = elementById("activeInvitationList", HTMLElement);
+const invitationHistoryList = elementById("invitationHistoryList", HTMLElement);
 const qrDialog = elementById("qrDialog", HTMLDialogElement);
 const qrImage = elementById("qrImage", HTMLImageElement);
 const qrInviteLabel = elementById("qrInviteLabel", HTMLElement);
@@ -207,6 +210,14 @@ function requiredBoolean(record: Record<string, unknown>, key: string): boolean 
   const value = record[key];
   if (typeof value !== "boolean") {
     throw new Error(`Invalid ${key} response.`);
+  }
+  return value;
+}
+
+function nullableString(record: Record<string, unknown>, key: string): string | null {
+  const value = record[key];
+  if (value !== null && typeof value !== "string") {
+    throw new Error(`Invalid ${key}.`);
   }
   return value;
 }
@@ -330,7 +341,9 @@ function parseAdminInvitation(value: unknown): AdminInvitation {
     maxBytes: requiredNumber(value, "maxBytes"),
     usedFiles: requiredNumber(value, "usedFiles"),
     usedBytes: requiredNumber(value, "usedBytes"),
+    createdAt: requiredString(value, "createdAt"),
     expiresAt: requiredString(value, "expiresAt"),
+    revokedAt: nullableString(value, "revokedAt"),
   };
 }
 
@@ -1000,16 +1013,20 @@ function invitationStatusLabel(status: AdminInvitation["status"]): string {
   }
 }
 
-function renderInvitations(invitations: AdminInvitation[]): void {
+function renderInvitationGroup(
+  container: HTMLElement,
+  invitations: AdminInvitation[],
+  emptyMessage: string,
+): void {
   if (invitations.length === 0) {
     const empty = document.createElement("p");
     empty.className = "empty-state";
-    empty.textContent = "尚未建立邀請。從左側設定額度後即可產生第一份邀請。";
-    invitationList.replaceChildren(empty);
+    empty.textContent = emptyMessage;
+    container.replaceChildren(empty);
     return;
   }
 
-  invitationList.replaceChildren(
+  container.replaceChildren(
     ...invitations.map((invitation) => {
       const card = document.createElement("article");
       card.className = "invitation-card";
@@ -1038,12 +1055,44 @@ function renderInvitations(invitations: AdminInvitation[]): void {
 
       const expiry = document.createElement("p");
       expiry.className = "invitation-card__expiry";
-      expiry.textContent = `到期：${formatDate(invitation.expiresAt)}`;
+      expiry.textContent =
+        invitation.status === "revoked" && invitation.revokedAt !== null
+          ? `建立：${formatDate(invitation.createdAt)} · 撤銷：${formatDate(invitation.revokedAt)}`
+          : `建立：${formatDate(invitation.createdAt)} · 到期：${formatDate(invitation.expiresAt)}`;
 
       card.append(heading, usage, expiry);
       if (invitation.status === "active") {
         const actions = document.createElement("div");
         actions.className = "invitation-card__actions";
+
+        const reissue = document.createElement("button");
+        reissue.type = "button";
+        reissue.className = "secondary-button";
+        reissue.textContent = "重新簽發並複製";
+        reissue.addEventListener("click", () => {
+          if (
+            !window.confirm(
+              `重新簽發「${invitation.label}」？舊連結與已登入裝置會立即失效，期限和已用額度不變。`,
+            )
+          ) {
+            return;
+          }
+          reissue.disabled = true;
+          void reissueAdminInvitation(invitation.id)
+            .then(async (reissued) => {
+              presentInvitationLink(reissued);
+              await copyText(reissued.inviteUrl);
+              createdInvite.scrollIntoView({ behavior: "smooth", block: "nearest" });
+              showToast("新連結已簽發；舊連結與既有 session 已失效");
+            })
+            .catch((error: unknown) => {
+              showToast(error instanceof Error ? error.message : "無法重新簽發邀請。", "error");
+            })
+            .finally(() => {
+              reissue.disabled = false;
+            });
+        });
+
         const revoke = document.createElement("button");
         revoke.type = "button";
         revoke.className = "secondary-button danger-button";
@@ -1068,7 +1117,7 @@ function renderInvitations(invitations: AdminInvitation[]): void {
               revoke.disabled = false;
             });
         });
-        actions.append(revoke);
+        actions.append(reissue, revoke);
         card.append(actions);
       }
       return card;
@@ -1076,9 +1125,23 @@ function renderInvitations(invitations: AdminInvitation[]): void {
   );
 }
 
+function renderInvitations(invitations: AdminInvitation[]): void {
+  renderInvitationGroup(
+    activeInvitationList,
+    invitations.filter((invitation) => invitation.status === "active"),
+    "目前沒有有效邀請。從左側設定額度後即可建立。",
+  );
+  renderInvitationGroup(
+    invitationHistoryList,
+    invitations.filter((invitation) => invitation.status !== "active"),
+    "目前沒有已撤銷或已到期的邀請。",
+  );
+}
+
 async function loadAdminInvitations(): Promise<void> {
-  invitationList.innerHTML = '<p class="empty-state">正在讀取邀請。</p>';
-  const response = await fetch("/api/admin/invitations");
+  activeInvitationList.innerHTML = '<p class="empty-state">正在讀取邀請。</p>';
+  invitationHistoryList.innerHTML = '<p class="empty-state">正在讀取邀請。</p>';
+  const response = await fetch("/api/admin/invitations", { cache: "no-store" });
   if (!response.ok) {
     throw new Error(await responseError(response));
   }
@@ -1123,19 +1186,36 @@ async function createAdminInvitation(): Promise<CreatedInvitation> {
   return parseCreatedInvitation(await response.json());
 }
 
-async function showInvitationQr(): Promise<void> {
-  if (createdInviteUrl.value.length === 0) {
-    return;
+async function reissueAdminInvitation(invitationId: string): Promise<CreatedInvitation> {
+  const response = await fetch(
+    `/api/admin/invitations/${encodeURIComponent(invitationId)}/reissue`,
+    { method: "POST" },
+  );
+  if (!response.ok) {
+    throw new Error(await responseError(response));
   }
+  return parseCreatedInvitation(await response.json());
+}
+
+function presentInvitationLink(invitation: CreatedInvitation): void {
+  createdInviteLabel.textContent =
+    `${invitation.label} · ${
+      invitation.unlimitedFiles ? "不限檔案數" : `${invitation.maxFiles} 個`
+    } · ${formatBytes(invitation.maxBytes)} · ` + `到期 ${formatDate(invitation.expiresAt)}`;
+  createdInviteUrl.value = invitation.inviteUrl;
+  createdInvite.classList.remove("is-hidden");
+}
+
+async function showInvitationQr(inviteUrl: string, label: string): Promise<void> {
   showQrButton.disabled = true;
   try {
-    qrImage.src = await QRCode.toDataURL(createdInviteUrl.value, {
+    qrImage.src = await QRCode.toDataURL(inviteUrl, {
       errorCorrectionLevel: "M",
       margin: 2,
       width: 680,
       color: { dark: "#07111d", light: "#ffffff" },
     });
-    qrInviteLabel.textContent = createdInviteLabel.textContent;
+    qrInviteLabel.textContent = label;
     qrDialog.showModal();
   } finally {
     showQrButton.disabled = false;
@@ -1203,12 +1283,7 @@ inviteForm.addEventListener("submit", (event) => {
   createInviteButton.disabled = true;
   void createAdminInvitation()
     .then(async (invitation) => {
-      createdInviteLabel.textContent =
-        `${invitation.label} · ${
-          invitation.unlimitedFiles ? "不限檔案數" : `${invitation.maxFiles} 個`
-        } · ${formatBytes(invitation.maxBytes)} · ` + `到期 ${formatDate(invitation.expiresAt)}`;
-      createdInviteUrl.value = invitation.inviteUrl;
-      createdInvite.classList.remove("is-hidden");
+      presentInvitationLink(invitation);
       await copyText(invitation.inviteUrl);
       await loadAdminInvitations();
     })
@@ -1228,9 +1303,14 @@ copyInviteButton.addEventListener("click", () => {
   void copyText(createdInviteUrl.value);
 });
 showQrButton.addEventListener("click", () => {
-  void showInvitationQr().catch((error: unknown) => {
+  if (createdInviteUrl.value.length === 0) {
+    return;
+  }
+  void showInvitationQr(createdInviteUrl.value, createdInviteLabel.textContent ?? "").catch(
+    (error: unknown) => {
     showToast(error instanceof Error ? error.message : "無法產生 QR Code。", "error");
-  });
+    },
+  );
 });
 closeQrButton.addEventListener("click", () => qrDialog.close());
 refreshInvitationsButton.addEventListener("click", () => {

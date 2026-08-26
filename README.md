@@ -249,6 +249,9 @@ site key 可以公開；secret key 不可寫入 repository 或前端。
 
 ## 本機開發
 
+完整的 UI、邀請、上傳、撤銷與本機資料檢查步驟見
+[`docs/local-testing.md`](./docs/local-testing.md)。
+
 複製開發 secrets：
 
 ```powershell

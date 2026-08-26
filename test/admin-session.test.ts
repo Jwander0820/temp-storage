@@ -44,6 +44,7 @@ describe("admin browser session", () => {
       }),
     );
     expect(session.status).toBe(200);
+    expect(session.headers.get("Cache-Control")).toBe("private, no-store");
 
     const created = await exports.default.fetch(
       new Request("https://upload.example.test/api/admin/invitations", {
@@ -59,7 +60,14 @@ describe("admin browser session", () => {
       }),
     );
     expect(created.status).toBe(201);
-    await expect(created.json()).resolves.toMatchObject({
+    expect(created.headers.get("Cache-Control")).toBe("private, no-store");
+    const createdPayload = await created.json<{
+      id: string;
+      label: string;
+      maxFiles: number;
+      unlimitedFiles: boolean;
+    }>();
+    expect(createdPayload).toMatchObject({
       label: "手機建立",
       maxFiles: 10,
       unlimitedFiles: true,
@@ -71,8 +79,27 @@ describe("admin browser session", () => {
       }),
     );
     expect(listed.status).toBe(200);
+    expect(listed.headers.get("Cache-Control")).toBe("private, no-store");
     await expect(listed.json()).resolves.toMatchObject({
       invitations: [{ label: "手機建立", status: "active", usedFiles: 0, unlimitedFiles: true }],
+    });
+
+    const revoked = await exports.default.fetch(
+      new Request(
+        `https://upload.example.test/api/admin/invitations/${createdPayload.id}`,
+        { method: "DELETE", headers: { Cookie: cookie } },
+      ),
+    );
+    expect(revoked.status).toBe(204);
+    expect(revoked.headers.get("Cache-Control")).toBe("private, no-store");
+
+    const history = await exports.default.fetch(
+      new Request("https://upload.example.test/api/admin/invitations", {
+        headers: { Cookie: cookie },
+      }),
+    );
+    await expect(history.json()).resolves.toMatchObject({
+      invitations: [{ label: "手機建立", status: "revoked" }],
     });
 
     const logout = await exports.default.fetch(

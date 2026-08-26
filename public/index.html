@@ -231,14 +231,26 @@
             <div class="section-heading">
               <div>
                 <p class="label">邀請帳本</p>
-                <h2 id="invitation-list-title">目前邀請</h2>
+                <h2 id="invitation-list-title">邀請管理</h2>
               </div>
               <button id="refreshInvitationsButton" class="text-button" type="button">
                 重新整理
               </button>
             </div>
-            <div id="invitationList" class="invitation-list" aria-live="polite">
-              <p class="empty-state">正在讀取邀請。</p>
+            <div class="invitation-groups" aria-live="polite">
+              <section class="invitation-group" aria-labelledby="active-invitations-title">
+                <h3 id="active-invitations-title">有效邀請</h3>
+                <div id="activeInvitationList" class="invitation-list">
+                  <p class="empty-state">正在讀取邀請。</p>
+                </div>
+              </section>
+              <section class="invitation-group" aria-labelledby="invitation-history-title">
+                <h3 id="invitation-history-title">歷史邀請</h3>
+                <p class="invitation-group__hint">已撤銷與已到期的邀請會保留在這裡。</p>
+                <div id="invitationHistoryList" class="invitation-list">
+                  <p class="empty-state">正在讀取邀請。</p>
+                </div>
+              </section>
             </div>
           </section>
         </div>

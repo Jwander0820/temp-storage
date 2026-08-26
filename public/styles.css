@@ -676,6 +676,33 @@ button:disabled {
   gap: 12px;
 }
 
+.invitation-groups,
+.invitation-group {
+  display: grid;
+  gap: 18px;
+}
+
+.invitation-group + .invitation-group {
+  padding-top: 22px;
+  border-top: 1px solid var(--line);
+}
+
+.invitation-group h3,
+.invitation-group__hint {
+  margin: 0;
+}
+
+.invitation-group h3 {
+  font-size: 1rem;
+}
+
+.invitation-group__hint {
+  margin-top: -10px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.6;
+}
+
 .invitation-card {
   display: grid;
   gap: 12px;

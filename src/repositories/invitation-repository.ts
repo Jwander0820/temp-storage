@@ -172,6 +172,37 @@ export async function revokeInvitation(
   ]);
 }
 
+export async function reissueInvitationToken(
+  database: D1Database,
+  invitationId: string,
+  tokenHash: string,
+  now: number,
+): Promise<InvitationSummary | null> {
+  const [updated] = await database.batch([
+    database
+      .prepare(
+        `UPDATE upload_invitations
+         SET token_hash = ?1
+         WHERE id = ?2
+           AND status = 'active'
+           AND expires_at > ?3`,
+      )
+      .bind(tokenHash, invitationId, now),
+    database
+      .prepare(
+        `UPDATE upload_sessions
+         SET revoked_at = COALESCE(revoked_at, ?1)
+         WHERE invitation_id = ?2 AND revoked_at IS NULL`,
+      )
+      .bind(now, invitationId),
+  ]);
+
+  if (updated?.meta.changes !== 1) {
+    return null;
+  }
+  return getInvitationSummary(database, invitationId);
+}
+
 export async function revokeSessionByTokenHash(
   database: D1Database,
   tokenHash: string,

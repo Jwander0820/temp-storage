@@ -9,6 +9,7 @@ import {
   createInvitation,
   invitationStatus,
   listInvitations,
+  reissueInvitationToken,
   revokeInvitation,
 } from "../repositories/invitation-repository";
 import { getStorageUsage } from "../repositories/quota-repository";
@@ -114,8 +115,12 @@ function decodeCursor(cursor: string | undefined): {
 
 export const adminRoutes = new Hono<AppEnv>();
 
-adminRoutes.post("/session", async (context) => {
+adminRoutes.use("*", async (context, next) => {
   context.header("Cache-Control", "private, no-store");
+  await next();
+});
+
+adminRoutes.post("/session", async (context) => {
   const authorization = context.req.header("Authorization");
   const match = /^Bearer\s+(.+)$/u.exec(authorization ?? "");
   const input = await context.req.json<unknown>();
@@ -147,7 +152,6 @@ adminRoutes.post("/session", async (context) => {
 adminRoutes.use("*", adminAuthMiddleware);
 
 adminRoutes.get("/session", (context) => {
-  context.header("Cache-Control", "private, no-store");
   return context.json({ authenticated: true });
 });
 
@@ -279,6 +283,32 @@ adminRoutes.get("/invitations", async (context) => {
           ? null
           : new Date(invitation.revoked_at * 1000).toISOString(),
     })),
+  });
+});
+
+adminRoutes.post("/invitations/:invitationId/reissue", async (context) => {
+  const config = getConfig(context.env);
+  const now = Math.floor(Date.now() / 1000);
+  const token = randomToken(32);
+  const invitation = await reissueInvitationToken(
+    context.env.DB,
+    context.req.param("invitationId"),
+    await createInvitationTokenHash(context.env.DELETE_TOKEN_PEPPER, token),
+    now,
+  );
+  if (invitation === null) {
+    throw new DomainError("INVITATION_INVALID", 409, "只有尚未到期的有效邀請可以重新簽發。");
+  }
+
+  return context.json({
+    id: invitation.id,
+    label: invitation.label,
+    inviteUrl: `${config.uploadOrigin}/invite#token=${token}`,
+    token,
+    maxFiles: invitation.max_files,
+    unlimitedFiles: invitation.unlimited_files === 1,
+    maxBytes: invitation.max_bytes,
+    expiresAt: new Date(invitation.expires_at * 1000).toISOString(),
   });
 });
 
