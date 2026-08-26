@@ -147,6 +147,7 @@ export interface AdminFileFilter {
   readonly createdBefore: number | null;
   readonly createdAfter: number | null;
   readonly expiresBefore: number | null;
+  readonly expiresAfter: number | null;
   readonly cursorCreatedAt: number | null;
   readonly cursorId: string | null;
   readonly limit: number;
@@ -165,13 +166,14 @@ export async function listAdminFiles(
          AND (?3 IS NULL OR created_at < ?3)
          AND (?4 IS NULL OR created_at > ?4)
          AND (?5 IS NULL OR expires_at < ?5)
+         AND (?6 IS NULL OR expires_at > ?6)
          AND (
-           ?6 IS NULL
-           OR created_at < ?6
-           OR (created_at = ?6 AND id < ?7)
+           ?7 IS NULL
+           OR created_at < ?7
+           OR (created_at = ?7 AND id < ?8)
          )
        ORDER BY created_at DESC, id DESC
-       LIMIT ?8`,
+       LIMIT ?9`,
     )
     .bind(
       filter.status,
@@ -179,6 +181,7 @@ export async function listAdminFiles(
       filter.createdBefore,
       filter.createdAfter,
       filter.expiresBefore,
+      filter.expiresAfter,
       filter.cursorCreatedAt,
       filter.cursorId,
       filter.limit,

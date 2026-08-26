@@ -16,6 +16,7 @@ import { getStorageUsage } from "../repositories/quota-repository";
 import { reconcileStorage, runCleanup } from "../services/cleanup-service";
 import { deleteFileAsAdmin } from "../services/deletion-service";
 import { issueAdminSession, revokeCurrentAdminSession } from "../services/admin-session-service";
+import { toPublicFile } from "../services/file-service";
 import { createInvitationTokenHash } from "../services/invitation-service";
 import { verifyTurnstile } from "../services/turnstile-service";
 import { randomToken } from "../utils/hash";
@@ -198,6 +199,7 @@ adminRoutes.get("/files", async (context) => {
     throw new DomainError("INVALID_REQUEST", 400, "limit 格式不正確。");
   }
   const limit = Math.min(100, requestedLimit);
+  const now = Math.floor(Date.now() / 1000);
   const cursor = decodeCursor(context.req.query("cursor"));
   const files = await listAdminFiles(context.env.DB, {
     status,
@@ -205,6 +207,7 @@ adminRoutes.get("/files", async (context) => {
     createdBefore: parseOptionalEpoch(context.req.query("createdBefore")),
     createdAfter: parseOptionalEpoch(context.req.query("createdAfter")),
     expiresBefore: parseOptionalEpoch(context.req.query("expiresBefore")),
+    expiresAfter: status === "active" ? now : null,
     cursorCreatedAt: cursor.createdAt,
     cursorId: cursor.id,
     limit: limit + 1,
@@ -214,19 +217,27 @@ adminRoutes.get("/files", async (context) => {
   const last = page.at(-1);
 
   return context.json({
-    files: page.map((file) => ({
-      id: file.id,
-      filename: file.original_name,
-      extension: file.extension,
-      declaredMime: file.declared_mime,
-      detectedMime: file.detected_mime,
-      sizeBytes: file.size_bytes,
-      previewPolicy: file.preview_policy,
-      status: file.status,
-      createdAt: new Date(file.created_at * 1000).toISOString(),
-      expiresAt: new Date(file.expires_at * 1000).toISOString(),
-      deletedAt: file.deleted_at === null ? null : new Date(file.deleted_at * 1000).toISOString(),
-    })),
+    files: page.map((file) => {
+      const publicFile =
+        file.status === "active" && file.expires_at > now
+          ? toPublicFile(file, getConfig(context.env))
+          : null;
+      return {
+        id: file.id,
+        filename: file.original_name,
+        extension: file.extension,
+        declaredMime: file.declared_mime,
+        detectedMime: file.detected_mime,
+        sizeBytes: file.size_bytes,
+        previewPolicy: file.preview_policy,
+        previewUrl: publicFile?.previewUrl ?? null,
+        downloadUrl: publicFile?.downloadUrl ?? null,
+        status: file.status,
+        createdAt: new Date(file.created_at * 1000).toISOString(),
+        expiresAt: new Date(file.expires_at * 1000).toISOString(),
+        deletedAt: file.deleted_at === null ? null : new Date(file.deleted_at * 1000).toISOString(),
+      };
+    }),
     nextCursor: hasMore && last !== undefined ? encodeCursor(last.created_at, last.id) : null,
   });
 });

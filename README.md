@@ -1,20 +1,21 @@
 # Jwander 暫存區
 
-部署於 Cloudflare 的私人預設暫存檔案服務。前端由 Worker Static Assets 提供，Worker
+部署於 Cloudflare 的邀請制共享暫存檔案服務。前端由 Worker Static Assets 提供，Worker
 負責驗證、配額、上傳、受控下載、刪除與排程；檔案本體放在既有的 `cdn` R2 bucket
-之 `temp-storage/objects/` namespace，metadata 與容量帳本放在獨立 D1。
+之 `temp-storage/objects/` namespace，metadata 與容量帳本放在獨立 D1。有效 invitation
+session 可瀏覽共享目錄；取得單檔公開 URL 後則可在檔案有效期間直接開啟或下載。
 
 ## 目前正式環境
 
 - 原始碼：GitHub private repository `Jwander0820/temp-storage`，production branch 為 `main`。
 - Worker：`jwander-temp-storage`，公開入口為 `https://upload.jwander.net`。
 - 管理頁：`https://upload.jwander.net/admin`，桌面與手機共用。
+- 共享檔案頁：`https://upload.jwander.net/files`，需要有效 invitation session。
 - 公開媒體：沿用既有 `cdn` R2 bucket 與 `https://cdn.jwander.net` Custom Domain。
 - Metadata／邀請／session／配額：D1 `jwander-temp-storage-db`，目前 migrations 到
-  `0005_invitation_unlimited_files.sql`。
+  `0006_shared_file_browser.sql`。
 - 自動部署：GitHub 已連接 Cloudflare Workers Builds；推送新的 commit 到 `main` 後，依序
   執行 `pnpm run build:client` 與 `pnpm run deploy:cloudflare`。
-
 
 Build 結果可在 **Workers & Pages → jwander-temp-storage → Deployments → Build history** 查看。
 
@@ -86,12 +87,16 @@ Assets 的 Workers 專案。GitHub 保存原始碼；Cloudflare Workers Builds �
 2. D1 database：`jwander-temp-storage-db`；binding 與 UUID 已寫入 `wrangler.jsonc`。
 3. Turnstile widget：正式 hostname 為 `upload.jwander.net`；site key 已寫入公開設定，secret
    只保存在 Worker runtime secrets。
+4. `FILE_BROWSER_RATE_LIMITER`：共享檔案清單依有效 session 每分鐘允許 120 次讀取，只攔截
+   極端輪詢；不寫入 D1 的上傳 rate-limit events。
 
 若要在另一個 Cloudflare 帳號重建環境，再於 [`wrangler.jsonc`](./wrangler.jsonc)：
 
 1. 將 `database_id` 換成新 D1 UUID。
 2. 將 `TURNSTILE_SITE_KEY` 換成新 Turnstile site key；site key 可以提交 Git。
-3. 確認 Worker 只宣告 `upload.jwander.net` Custom Domain；`cdn.jwander.net` 繼續由既有
+3. 確認 `FILE_BROWSER_RATE_LIMITER` 的 `namespace_id` 未與該帳號其他 Rate Limiting binding
+   共用。
+4. 確認 Worker 只宣告 `upload.jwander.net` Custom Domain；`cdn.jwander.net` 繼續由既有
    `cdn` R2 bucket 提供，不由 Worker 接管。
 
 新暫存物件固定寫入 `temp-storage/objects/`，cleanup、reconciliation 與 Lifecycle 也只處理
@@ -372,11 +377,16 @@ HEAD   /d/:fileId
 
 ```text
 GET    /api/storage
+GET    /api/files              query: cursor?, limit=24 (max 60), type=all|image|video|audio|other
 GET    /api/invitations/session
 DELETE /api/invitations/session
 POST   /api/uploads/reserve
 PUT    /api/uploads/:uploadId
 ```
+
+`GET /api/files` 是所有有效邀請共用的檔案目錄，只回傳 `active` 且未到期的公開欄位，固定依
+`created_at DESC, id DESC` keyset 分頁。回應不包含 R2 object key、邀請 ID、上傳者 hash 或
+任何刪除憑證，並固定使用 `private, no-store`。R2 Custom Domain 不提供 bucket listing。
 
 管理 API 可使用 `Authorization: Bearer {ADMIN_TOKEN}`，或先在 `/admin` 以管理 token 與
 Turnstile 換取短效 HttpOnly admin session：
@@ -395,7 +405,9 @@ POST   /api/admin/reconcile
 DELETE /api/admin/files/:fileId
 ```
 
-`/admin` 是桌面與手機共用的響應式管理頁，可建立、複製、顯示 QR Code、列出與撤銷邀請。
+`/admin` 是桌面與手機共用的響應式管理頁，可建立、複製、顯示 QR Code、列出與撤銷邀請，
+也可分頁列出尚未到期的 active 檔案並在確認後刪除。刪除沿用 Worker 的一致性流程，同步更新
+R2、D1 狀態與容量帳本；已載入或快取的公開預覽可能短暫保留。
 QR Code 完全在瀏覽器內產生，不會把邀請 token 傳給第三方服務。永久 `ADMIN_TOKEN` 只用於
 建立 admin session，不寫入 localStorage、sessionStorage 或前端 cookie；後續管理請求只帶
 HttpOnly session cookie。CLI 與自動化工具仍可直接使用 Bearer token。
@@ -545,6 +557,8 @@ Invoke-RestMethod `
 ## 邊緣成本護欄
 
 程式內配額只能限制已通過邀請 session 的上傳，不能避免匿名攻擊先產生 Worker request。
+共享檔案清單另有寬鬆的 session 級 Worker Rate Limiting binding，但同樣無法阻止請求先進入
+Worker；若需在邊緣直接攔截流量，仍須使用下列 WAF／rate limiting 規則。
 正式重啟前，在 Cloudflare Security rules 建立 host-scoped WAF／rate limiting，先以 Log
 觀察誤判，再改為 Block 或 Managed Challenge：
 

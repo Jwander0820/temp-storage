@@ -9,5 +9,6 @@ export const uploadSessionMiddleware = createMiddleware<AppEnv>(async (context, 
     throw new DomainError("INVITATION_REQUIRED", 401, "請使用有效的邀請連結進入上傳頁面。");
   }
   context.set("uploadInvitationId", session.id);
+  context.set("uploadSessionId", session.session_id);
   await next();
 });

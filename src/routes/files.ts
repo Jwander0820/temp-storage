@@ -2,12 +2,36 @@ import { Hono } from "hono";
 import type { AppEnv } from "../app-types";
 import { DomainError } from "../domain/errors";
 import { getConfig } from "../env";
+import { fileBrowserRateLimitMiddleware } from "../middleware/file-browser-rate-limit";
+import { uploadSessionMiddleware } from "../middleware/upload-session";
 import { getAccessibleFile } from "../repositories/file-repository";
 import { deleteFileWithToken } from "../services/deletion-service";
+import { browseActiveFiles, type BrowseFileType } from "../services/file-browser-service";
 import { toPublicFile } from "../services/file-service";
 import { isFileId } from "../utils/hash";
 
 export const fileRoutes = new Hono<AppEnv>();
+
+fileRoutes.get(
+  "/files",
+  uploadSessionMiddleware,
+  fileBrowserRateLimitMiddleware,
+  async (context) => {
+    context.header("Cache-Control", "private, no-store");
+    const limitValue = context.req.query("limit") ?? "24";
+    if (!/^\d+$/u.test(limitValue)) {
+      throw new DomainError("INVALID_REQUEST", 400, "limit 格式不正確。");
+    }
+    const type = (context.req.query("type") ?? "all") as BrowseFileType;
+    const result = await browseActiveFiles(context.env.DB, getConfig(context.env), {
+      now: Math.floor(Date.now() / 1000),
+      cursor: context.req.query("cursor") ?? null,
+      limit: Number(limitValue),
+      type,
+    });
+    return context.json(result);
+  },
+);
 
 fileRoutes.get("/files/:fileId", async (context) => {
   const fileId = context.req.param("fileId");

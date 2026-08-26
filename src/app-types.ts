@@ -5,5 +5,6 @@ export interface AppEnv {
   Variables: {
     requestId: string;
     uploadInvitationId: string;
+    uploadSessionId: string;
   };
 }

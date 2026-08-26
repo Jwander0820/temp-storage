@@ -1,4 +1,5 @@
 import { limitUploadBatch } from "./upload-limits";
+import { createLatestRequestCoordinator } from "./latest-request";
 import QRCode from "qrcode";
 
 interface PublicConfig {
@@ -80,6 +81,23 @@ interface CreatedInvitation {
   readonly expiresAt: string;
 }
 
+type FileTypeFilter = "all" | "image" | "video" | "audio" | "other";
+
+interface FileListResponse {
+  readonly files: PublicFile[];
+  readonly nextCursor: string | null;
+}
+
+interface AdminFile extends PublicFile {
+  readonly status: "active";
+}
+
+interface AdminStatus {
+  readonly usedBytes: number;
+  readonly reservedBytes: number;
+  readonly maxBytes: number;
+}
+
 type TurnstileAction = "invite" | "admin";
 
 interface TurnstileApi {
@@ -121,6 +139,13 @@ interface UploadTask {
 const tasks: UploadTask[] = [];
 let activeUploads = 0;
 let config: PublicConfig | null = null;
+let sharedFiles: PublicFile[] = [];
+let sharedFilesCursor: string | null = null;
+let sharedFilesType: FileTypeFilter = "all";
+const sharedFilesRequests = createLatestRequestCoordinator();
+let adminFiles: AdminFile[] = [];
+let adminFilesCursor: string | null = null;
+let pendingAdminDelete: { file: AdminFile; trigger: HTMLButtonElement } | null = null;
 
 function elementById<T extends HTMLElement>(
   id: string,
@@ -134,8 +159,16 @@ function elementById<T extends HTMLElement>(
 }
 
 const uploadPage = elementById("uploadPage", HTMLElement);
+const filesPage = elementById("filesPage", HTMLElement);
 const adminPage = elementById("adminPage", HTMLElement);
 const filePage = elementById("filePage", HTMLElement);
+const filesInviteGate = elementById("filesInviteGate", HTMLElement);
+const filesWorkspace = elementById("filesWorkspace", HTMLElement);
+const fileTypeFilters = elementById("fileTypeFilters", HTMLElement);
+const sharedFilesStatus = elementById("sharedFilesStatus", HTMLElement);
+const sharedFileList = elementById("sharedFileList", HTMLElement);
+const retrySharedFilesButton = elementById("retrySharedFilesButton", HTMLButtonElement);
+const loadMoreSharedFilesButton = elementById("loadMoreSharedFilesButton", HTMLButtonElement);
 const inviteGate = elementById("inviteGate", HTMLElement);
 const inviteGateTitle = elementById("inviteGateTitle", HTMLElement);
 const inviteGateMessage = elementById("inviteGateMessage", HTMLElement);
@@ -177,10 +210,18 @@ const showQrButton = elementById("showQrButton", HTMLButtonElement);
 const refreshInvitationsButton = elementById("refreshInvitationsButton", HTMLButtonElement);
 const activeInvitationList = elementById("activeInvitationList", HTMLElement);
 const invitationHistoryList = elementById("invitationHistoryList", HTMLElement);
+const adminStorageStatus = elementById("adminStorageStatus", HTMLElement);
+const refreshAdminFilesButton = elementById("refreshAdminFilesButton", HTMLButtonElement);
+const adminFileList = elementById("adminFileList", HTMLElement);
+const loadMoreAdminFilesButton = elementById("loadMoreAdminFilesButton", HTMLButtonElement);
 const qrDialog = elementById("qrDialog", HTMLDialogElement);
 const qrImage = elementById("qrImage", HTMLImageElement);
 const qrInviteLabel = elementById("qrInviteLabel", HTMLElement);
 const closeQrButton = elementById("closeQrButton", HTMLButtonElement);
+const deleteFileDialog = elementById("deleteFileDialog", HTMLDialogElement);
+const deleteFileMessage = elementById("deleteFileMessage", HTMLElement);
+const cancelDeleteFileButton = elementById("cancelDeleteFileButton", HTMLButtonElement);
+const confirmDeleteFileButton = elementById("confirmDeleteFileButton", HTMLButtonElement);
 const uploadQueue = elementById("uploadQueue", HTMLOListElement);
 const queueCount = elementById("queueCount", HTMLElement);
 const uploadHelp = elementById("upload-help", HTMLElement);
@@ -303,6 +344,50 @@ function parsePublicFile(value: unknown): PublicFile {
   };
 }
 
+function parseFileList(value: unknown): FileListResponse {
+  if (!isRecord(value) || !Array.isArray(value.files)) {
+    throw new Error("Invalid file list response.");
+  }
+  return {
+    files: value.files.map(parsePublicFile),
+    nextCursor: nullableString(value, "nextCursor"),
+  };
+}
+
+function parseAdminFile(value: unknown): AdminFile {
+  if (!isRecord(value) || value.status !== "active") {
+    throw new Error("Invalid admin file response.");
+  }
+  return {
+    ...parsePublicFile(value),
+    status: "active",
+  };
+}
+
+function parseAdminFileList(value: unknown): {
+  readonly files: AdminFile[];
+  readonly nextCursor: string | null;
+} {
+  if (!isRecord(value) || !Array.isArray(value.files)) {
+    throw new Error("Invalid admin file list response.");
+  }
+  return {
+    files: value.files.map(parseAdminFile),
+    nextCursor: nullableString(value, "nextCursor"),
+  };
+}
+
+function parseAdminStatus(value: unknown): AdminStatus {
+  if (!isRecord(value) || !isRecord(value.storage)) {
+    throw new Error("Invalid admin status response.");
+  }
+  return {
+    usedBytes: requiredNumber(value.storage, "usedBytes"),
+    reservedBytes: requiredNumber(value.storage, "reservedBytes"),
+    maxBytes: requiredNumber(value.storage, "maxBytes"),
+  };
+}
+
 function parseCompletedUpload(value: unknown): CompletedUpload {
   if (!isRecord(value)) {
     throw new Error("Invalid upload response.");
@@ -393,6 +478,20 @@ function formatDuration(seconds: number): string {
   return `${Math.max(1, Math.round(seconds / 60))} 分鐘`;
 }
 
+function formatRemaining(expiresAt: string): string {
+  const seconds = Math.max(0, Math.floor((new Date(expiresAt).getTime() - Date.now()) / 1000));
+  if (seconds < 60) {
+    return "即將到期";
+  }
+  if (seconds < 3_600) {
+    return `剩餘 ${Math.ceil(seconds / 60)} 分鐘`;
+  }
+  if (seconds < 86_400) {
+    return `剩餘 ${Math.ceil(seconds / 3_600)} 小時`;
+  }
+  return `剩餘 ${Math.ceil(seconds / 86_400)} 天`;
+}
+
 function showToast(message: string, kind: "success" | "error" = "success"): void {
   const toast = document.createElement("div");
   toast.className = `toast toast--${kind}`;
@@ -427,6 +526,182 @@ async function copyText(value: string): Promise<void> {
     fallback.remove();
   }
   showToast("已複製到剪貼簿");
+}
+
+function fileKind(file: PublicFile): { label: string; code: string; className: string } {
+  if (file.detectedMime.startsWith("image/")) {
+    return { label: "圖片", code: "IMG", className: "image" };
+  }
+  if (file.detectedMime.startsWith("video/")) {
+    return { label: "影片", code: "VID", className: "video" };
+  }
+  if (file.detectedMime.startsWith("audio/")) {
+    return { label: "音訊", code: "AUD", className: "audio" };
+  }
+  return { label: "檔案", code: "FILE", className: "other" };
+}
+
+function createFileVisual(file: PublicFile): HTMLElement {
+  const kind = fileKind(file);
+  const visual = document.createElement("div");
+  visual.className = `file-card__visual file-card__visual--${kind.className}`;
+
+  if (kind.className === "image" && file.previewPolicy === "inline" && file.previewUrl !== null) {
+    const image = document.createElement("img");
+    image.src = file.previewUrl;
+    image.alt = file.filename;
+    image.loading = "lazy";
+    image.decoding = "async";
+    visual.append(image);
+    return visual;
+  }
+
+  const code = document.createElement("span");
+  code.className = "file-card__kind";
+  code.textContent = kind.code;
+  const signal = document.createElement("span");
+  signal.className = "file-card__signal";
+  signal.setAttribute("aria-hidden", "true");
+  signal.append(
+    document.createElement("i"),
+    document.createElement("i"),
+    document.createElement("i"),
+  );
+  visual.append(code, signal);
+  return visual;
+}
+
+function publicFilePageUrl(file: PublicFile): string {
+  return new URL(`/file/${encodeURIComponent(file.id)}`, window.location.origin).href;
+}
+
+function createSharedFileCard(file: PublicFile): HTMLElement {
+  const card = document.createElement("article");
+  card.className = "file-card";
+
+  const visualLink = document.createElement("a");
+  visualLink.href = `/file/${encodeURIComponent(file.id)}`;
+  visualLink.className = "file-card__visual-link";
+  visualLink.setAttribute("aria-label", `開啟 ${file.filename}`);
+  visualLink.append(createFileVisual(file));
+
+  const body = document.createElement("div");
+  body.className = "file-card__body";
+  const heading = document.createElement("h2");
+  const fileLink = document.createElement("a");
+  fileLink.href = `/file/${encodeURIComponent(file.id)}`;
+  fileLink.textContent = file.filename;
+  heading.append(fileLink);
+
+  const type = document.createElement("p");
+  type.className = "file-card__type";
+  type.textContent = `${fileKind(file).label} · ${file.detectedMime}`;
+
+  const details = document.createElement("dl");
+  details.className = "file-card__details";
+  addDetail(details, "大小", formatBytes(file.sizeBytes));
+  addDetail(details, "上傳", formatDate(file.createdAt));
+  addDetail(details, "到期", `${formatDate(file.expiresAt)}（${formatRemaining(file.expiresAt)}）`);
+
+  const actions = document.createElement("div");
+  actions.className = "file-card__actions";
+  const download = document.createElement("a");
+  download.href = file.downloadUrl;
+  download.className = "secondary-button secondary-button--link";
+  download.textContent = "下載";
+  const copy = createActionButton("複製連結", () => {
+    void copyText(publicFilePageUrl(file));
+  });
+  actions.append(download, copy);
+  body.append(heading, type, details, actions);
+  card.append(visualLink, body);
+  return card;
+}
+
+function renderSharedFiles(): void {
+  sharedFileList.replaceChildren(...sharedFiles.map(createSharedFileCard));
+  if (sharedFiles.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "browser-empty";
+    const heading = document.createElement("h2");
+    heading.textContent = "暫存區目前沒有可瀏覽的檔案";
+    const message = document.createElement("p");
+    message.textContent =
+      sharedFilesType === "all"
+        ? "上傳第一個可分享的檔案，讓它出現在這裡。"
+        : "這個類型目前沒有有效檔案。";
+    const upload = document.createElement("a");
+    upload.href = "/";
+    upload.className = "primary-button primary-button--link";
+    upload.textContent = "前往上傳";
+    empty.append(heading, message, upload);
+    sharedFileList.append(empty);
+  }
+  sharedFilesStatus.textContent = `已顯示 ${sharedFiles.length} 個檔案`;
+  loadMoreSharedFilesButton.classList.toggle("is-hidden", sharedFilesCursor === null);
+}
+
+async function loadSharedFiles(reset: boolean): Promise<void> {
+  const request = sharedFilesRequests.begin();
+  const requestedType = sharedFilesType;
+  const requestedCursor = reset ? null : sharedFilesCursor;
+  retrySharedFilesButton.classList.add("is-hidden");
+  loadMoreSharedFilesButton.disabled = true;
+  sharedFilesStatus.textContent = reset ? "正在讀取共享檔案。" : "正在載入更多檔案。";
+  const parameters = new URLSearchParams({ limit: "24", type: requestedType });
+  if (requestedCursor !== null) {
+    parameters.set("cursor", requestedCursor);
+  }
+  try {
+    const response = await fetch(`/api/files?${parameters.toString()}`, {
+      cache: "no-store",
+      signal: request.signal,
+    });
+    if (!request.isCurrent()) {
+      return;
+    }
+    if (response.status === 401) {
+      filesWorkspace.classList.add("is-hidden");
+      filesInviteGate.classList.remove("is-hidden");
+      return;
+    }
+    if (!response.ok) {
+      throw new Error(await responseError(response));
+    }
+    const payload = parseFileList(await response.json());
+    if (!request.isCurrent()) {
+      return;
+    }
+    sharedFiles = reset ? payload.files : [...sharedFiles, ...payload.files];
+    sharedFilesCursor = payload.nextCursor;
+    renderSharedFiles();
+  } catch (error) {
+    if (request.signal.aborted || !request.isCurrent()) {
+      return;
+    }
+    throw error;
+  } finally {
+    if (request.isCurrent()) {
+      loadMoreSharedFilesButton.disabled = false;
+    }
+    request.finish();
+  }
+}
+
+async function initializeFilesPage(): Promise<void> {
+  uploadPage.classList.add("is-hidden");
+  adminPage.classList.add("is-hidden");
+  filePage.classList.add("is-hidden");
+  filesPage.classList.remove("is-hidden");
+  filesWorkspace.classList.remove("is-hidden");
+  try {
+    await loadSharedFiles(true);
+  } catch (error) {
+    sharedFilesStatus.textContent =
+      error instanceof Error ? error.message : "無法讀取共享檔案，請稍後再試。";
+    retrySharedFilesButton.classList.remove("is-hidden");
+    loadMoreSharedFilesButton.disabled = false;
+  }
 }
 
 class TurnstileTokenManager {
@@ -930,6 +1205,10 @@ function activateInvitation(session: InvitationSessionInfo): void {
 }
 
 async function initializeUploadPage(): Promise<void> {
+  filesPage.classList.add("is-hidden");
+  adminPage.classList.add("is-hidden");
+  filePage.classList.add("is-hidden");
+  uploadPage.classList.remove("is-hidden");
   await loadConfig();
   const invitationToken = inviteTokenFromFragment();
   if (invitationToken !== null) {
@@ -1000,6 +1279,154 @@ async function hasAdminSession(): Promise<boolean> {
     throw new Error(await responseError(response));
   }
   return true;
+}
+
+async function loadAdminStatus(): Promise<void> {
+  const response = await fetch("/api/admin/status", { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(await responseError(response));
+  }
+  const status = parseAdminStatus(await response.json());
+  adminStorageStatus.textContent =
+    `${formatBytes(status.usedBytes)} 已使用` +
+    (status.reservedBytes > 0 ? `、${formatBytes(status.reservedBytes)} 上傳中` : "") +
+    `／${formatBytes(status.maxBytes)}`;
+}
+
+function requestAdminFileDeletion(file: AdminFile, trigger: HTMLButtonElement): void {
+  pendingAdminDelete = { file, trigger };
+  deleteFileMessage.textContent =
+    `「${file.filename}」將從共享清單移除，新的檔案資訊與下載請求會失效。` +
+    "已載入或快取的公開預覽可能短暫保留。此操作無法復原。";
+  confirmDeleteFileButton.disabled = false;
+  deleteFileDialog.showModal();
+  cancelDeleteFileButton.focus();
+}
+
+function createAdminFileCard(file: AdminFile): HTMLElement {
+  const card = document.createElement("article");
+  card.className = "admin-file-card";
+  card.dataset.fileId = file.id;
+
+  const visual = createFileVisual(file);
+  visual.classList.add("admin-file-card__visual");
+  const body = document.createElement("div");
+  body.className = "admin-file-card__body";
+  const heading = document.createElement("div");
+  heading.className = "admin-file-card__heading";
+  const name = document.createElement("strong");
+  name.textContent = file.filename;
+  const status = document.createElement("span");
+  status.className = "status-pill status-pill--active";
+  status.textContent = "公開中";
+  heading.append(name, status);
+
+  const metadata = document.createElement("p");
+  metadata.className = "admin-file-card__metadata";
+  metadata.textContent = `${formatBytes(file.sizeBytes)} · ${file.detectedMime}`;
+  const dates = document.createElement("p");
+  dates.className = "admin-file-card__metadata";
+  dates.textContent = `建立 ${formatDate(file.createdAt)} · 到期 ${formatDate(file.expiresAt)}`;
+
+  const actions = document.createElement("div");
+  actions.className = "admin-file-card__actions";
+  const info = document.createElement("a");
+  info.href = `/file/${encodeURIComponent(file.id)}`;
+  info.className = "text-link";
+  info.textContent = "檔案資訊";
+  const download = document.createElement("a");
+  download.href = file.downloadUrl;
+  download.className = "text-link";
+  download.textContent = "下載";
+  actions.append(info);
+  if (file.previewUrl !== null) {
+    const preview = document.createElement("a");
+    preview.href = file.previewUrl;
+    preview.target = "_blank";
+    preview.rel = "noopener";
+    preview.className = "text-link";
+    preview.textContent = "預覽";
+    actions.append(preview);
+  }
+  actions.append(download);
+  const deleteButton = document.createElement("button");
+  deleteButton.className = "secondary-button danger-button";
+  deleteButton.type = "button";
+  deleteButton.textContent = "刪除檔案";
+  deleteButton.addEventListener("click", () => requestAdminFileDeletion(file, deleteButton));
+  actions.append(deleteButton);
+
+  body.append(heading, metadata, dates, actions);
+  card.append(visual, body);
+  return card;
+}
+
+function renderAdminFiles(): void {
+  if (adminFiles.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "empty-state";
+    empty.textContent = "目前沒有 active 檔案。";
+    adminFileList.replaceChildren(empty);
+  } else {
+    adminFileList.replaceChildren(...adminFiles.map(createAdminFileCard));
+  }
+  loadMoreAdminFilesButton.classList.toggle("is-hidden", adminFilesCursor === null);
+}
+
+async function loadAdminFiles(reset: boolean): Promise<void> {
+  if (reset) {
+    adminFileList.textContent = "正在讀取檔案。";
+    adminFileList.classList.add("empty-state");
+  }
+  const parameters = new URLSearchParams({ status: "active", limit: "50" });
+  if (!reset && adminFilesCursor !== null) {
+    parameters.set("cursor", adminFilesCursor);
+  }
+  const response = await fetch(`/api/admin/files?${parameters.toString()}`, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(await responseError(response));
+  }
+  const payload = parseAdminFileList(await response.json());
+  adminFiles = reset ? payload.files : [...adminFiles, ...payload.files];
+  adminFilesCursor = payload.nextCursor;
+  adminFileList.classList.remove("empty-state");
+  renderAdminFiles();
+}
+
+async function deletePendingAdminFile(): Promise<void> {
+  if (pendingAdminDelete === null) {
+    return;
+  }
+  const { file, trigger } = pendingAdminDelete;
+  trigger.disabled = true;
+  confirmDeleteFileButton.disabled = true;
+  confirmDeleteFileButton.textContent = "刪除中…";
+  try {
+    const response = await fetch(`/api/admin/files/${encodeURIComponent(file.id)}`, {
+      method: "DELETE",
+    });
+    if (!response.ok) {
+      throw new Error(await responseError(response));
+    }
+    adminFiles = adminFiles.filter((item) => item.id !== file.id);
+    renderAdminFiles();
+    deleteFileDialog.close();
+    pendingAdminDelete = null;
+    showToast("檔案已刪除；已載入或快取的公開預覽可能短暫保留");
+    void loadAdminStatus().catch((error: unknown) => {
+      showToast(
+        error instanceof Error ? error.message : "檔案已刪除，但容量狀態更新失敗。",
+        "error",
+      );
+    });
+    refreshAdminFilesButton.focus();
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : "無法刪除檔案，請再試一次。", "error");
+    trigger.disabled = false;
+    confirmDeleteFileButton.disabled = false;
+  } finally {
+    confirmDeleteFileButton.textContent = "刪除檔案";
+  }
 }
 
 function invitationStatusLabel(status: AdminInvitation["status"]): string {
@@ -1224,12 +1651,13 @@ async function showInvitationQr(inviteUrl: string, label: string): Promise<void>
 
 async function initializeAdminPage(): Promise<void> {
   uploadPage.classList.add("is-hidden");
+  filesPage.classList.add("is-hidden");
   filePage.classList.add("is-hidden");
   adminPage.classList.remove("is-hidden");
   await loadConfig();
   if (await hasAdminSession()) {
     setAdminAuthenticated(true);
-    await loadAdminInvitations();
+    await Promise.all([loadAdminInvitations(), loadAdminFiles(true), loadAdminStatus()]);
     return;
   }
   setAdminAuthenticated(false);
@@ -1261,7 +1689,7 @@ adminLoginButton.addEventListener("click", () => {
         throw new Error(await responseError(response));
       }
       setAdminAuthenticated(true);
-      await loadAdminInvitations();
+      await Promise.all([loadAdminInvitations(), loadAdminFiles(true), loadAdminStatus()]);
     })
     .catch((error: unknown) => {
       adminTokenInput.value = "";
@@ -1308,7 +1736,7 @@ showQrButton.addEventListener("click", () => {
   }
   void showInvitationQr(createdInviteUrl.value, createdInviteLabel.textContent ?? "").catch(
     (error: unknown) => {
-    showToast(error instanceof Error ? error.message : "無法產生 QR Code。", "error");
+      showToast(error instanceof Error ? error.message : "無法產生 QR Code。", "error");
     },
   );
 });
@@ -1322,6 +1750,40 @@ refreshInvitationsButton.addEventListener("click", () => {
     .finally(() => {
       refreshInvitationsButton.disabled = false;
     });
+});
+
+refreshAdminFilesButton.addEventListener("click", () => {
+  refreshAdminFilesButton.disabled = true;
+  void Promise.all([loadAdminFiles(true), loadAdminStatus()])
+    .catch((error: unknown) => {
+      showToast(error instanceof Error ? error.message : "無法讀取檔案。", "error");
+    })
+    .finally(() => {
+      refreshAdminFilesButton.disabled = false;
+    });
+});
+
+loadMoreAdminFilesButton.addEventListener("click", () => {
+  loadMoreAdminFilesButton.disabled = true;
+  void loadAdminFiles(false)
+    .catch((error: unknown) => {
+      showToast(error instanceof Error ? error.message : "無法載入更多檔案。", "error");
+    })
+    .finally(() => {
+      loadMoreAdminFilesButton.disabled = false;
+    });
+});
+
+cancelDeleteFileButton.addEventListener("click", () => deleteFileDialog.close());
+confirmDeleteFileButton.addEventListener("click", () => {
+  void deletePendingAdminFile();
+});
+deleteFileDialog.addEventListener("close", () => {
+  const trigger = pendingAdminDelete?.trigger;
+  pendingAdminDelete = null;
+  if (trigger?.isConnected) {
+    trigger.focus();
+  }
 });
 
 function mediaElement(file: PublicFile): HTMLElement | null {
@@ -1364,6 +1826,8 @@ function addDetail(list: HTMLDListElement, label: string, value: string): void {
 
 async function loadFilePage(fileId: string): Promise<void> {
   uploadPage.classList.add("is-hidden");
+  filesPage.classList.add("is-hidden");
+  adminPage.classList.add("is-hidden");
   filePage.classList.remove("is-hidden");
   filePage.textContent = "正在取得檔案資訊…";
 
@@ -1481,11 +1945,60 @@ document.addEventListener("paste", (event) => {
   }
 });
 
+fileTypeFilters.addEventListener("click", (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLButtonElement)) {
+    return;
+  }
+  const type = target.dataset.fileType;
+  if (
+    type !== "all" &&
+    type !== "image" &&
+    type !== "video" &&
+    type !== "audio" &&
+    type !== "other"
+  ) {
+    return;
+  }
+  sharedFilesType = type;
+  for (const button of fileTypeFilters.querySelectorAll<HTMLButtonElement>("[data-file-type]")) {
+    const selected = button === target;
+    button.classList.toggle("is-active", selected);
+    button.setAttribute("aria-pressed", String(selected));
+  }
+  void loadSharedFiles(true).catch((error: unknown) => {
+    sharedFilesStatus.textContent = error instanceof Error ? error.message : "無法篩選檔案。";
+    retrySharedFilesButton.classList.remove("is-hidden");
+  });
+});
+
+retrySharedFilesButton.addEventListener("click", () => {
+  retrySharedFilesButton.disabled = true;
+  void loadSharedFiles(true)
+    .catch((error: unknown) => {
+      sharedFilesStatus.textContent = error instanceof Error ? error.message : "無法讀取共享檔案。";
+      retrySharedFilesButton.classList.remove("is-hidden");
+    })
+    .finally(() => {
+      retrySharedFilesButton.disabled = false;
+    });
+});
+
+loadMoreSharedFilesButton.addEventListener("click", () => {
+  void loadSharedFiles(false).catch((error: unknown) => {
+    sharedFilesStatus.textContent = error instanceof Error ? error.message : "無法載入更多檔案。";
+    retrySharedFilesButton.classList.remove("is-hidden");
+    loadMoreSharedFilesButton.disabled = false;
+  });
+});
+
 const filePageMatch = /^\/file\/([^/]+)$/u.exec(window.location.pathname);
 if (window.location.pathname === "/admin" || window.location.pathname === "/admin/") {
   void initializeAdminPage().catch((error: unknown) => {
     adminGateMessage.textContent = error instanceof Error ? error.message : "管理頁載入失敗。";
   });
+} else if (window.location.pathname === "/files" || window.location.pathname === "/files/") {
+  void initializeFilesPage();
 } else if (filePageMatch?.[1] !== undefined) {
   void loadFilePage(decodeURIComponent(filePageMatch[1]));
 } else {
