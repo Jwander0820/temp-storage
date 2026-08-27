@@ -4,6 +4,7 @@ import type { FileStatus } from "../domain/file";
 import { DomainError } from "../domain/errors";
 import { getConfig, type AppConfig } from "../env";
 import { adminAuthMiddleware } from "../middleware/admin-auth";
+import { adminLoginRateLimitMiddleware } from "../middleware/admin-login-rate-limit";
 import { listAdminFiles } from "../repositories/file-repository";
 import {
   createInvitation,
@@ -16,7 +17,11 @@ import {
 import { getStorageUsage } from "../repositories/quota-repository";
 import { reconcileStorage, runCleanup } from "../services/cleanup-service";
 import { deleteFileAsAdmin } from "../services/deletion-service";
-import { issueAdminSession, revokeCurrentAdminSession } from "../services/admin-session-service";
+import {
+  issueAdminSession,
+  revokeAllAdminSessions,
+  revokeCurrentAdminSession,
+} from "../services/admin-session-service";
 import { toPublicFile } from "../services/file-service";
 import { createInvitationTokenHash } from "../services/invitation-service";
 import { verifyTurnstile } from "../services/turnstile-service";
@@ -127,29 +132,63 @@ adminRoutes.use("*", async (context, next) => {
   await next();
 });
 
-adminRoutes.post("/session", async (context) => {
+function logAdminLogin(requestId: string, success: boolean): void {
+  console[success ? "log" : "warn"](
+    JSON.stringify({
+      level: success ? "info" : "warn",
+      event: success ? "admin_login.succeeded" : "admin_login.failed",
+      timestamp: new Date().toISOString(),
+      requestId,
+    }),
+  );
+}
+
+function adminLoginFailure(): DomainError {
+  return new DomainError("INVALID_REQUEST", 401, "管理員驗證失敗。");
+}
+
+adminRoutes.post("/session", adminLoginRateLimitMiddleware, async (context) => {
   const authorization = context.req.header("Authorization");
   const match = /^Bearer\s+(.+)$/u.exec(authorization ?? "");
-  const input = await context.req.json<unknown>();
+  let input: unknown;
+  try {
+    input = await context.req.json<unknown>();
+  } catch {
+    logAdminLogin(context.get("requestId"), false);
+    throw adminLoginFailure();
+  }
   const turnstileToken =
     typeof input === "object" && input !== null
       ? (input as Record<string, unknown>).turnstileToken
       : null;
+  if (typeof turnstileToken !== "string") {
+    logAdminLogin(context.get("requestId"), false);
+    throw adminLoginFailure();
+  }
+  try {
+    await verifyTurnstile(
+      context.env,
+      turnstileToken,
+      context.req.header("CF-Connecting-IP") ?? "local-development",
+      context.get("requestId"),
+      "admin",
+    );
+  } catch (error) {
+    if (error instanceof DomainError && error.code === "TURNSTILE_FAILED") {
+      logAdminLogin(context.get("requestId"), false);
+      throw adminLoginFailure();
+    }
+    throw error;
+  }
   if (
     match?.[1] === undefined ||
-    !(await timingSafeStringEqual(match[1], context.env.ADMIN_TOKEN)) ||
-    typeof turnstileToken !== "string"
+    !(await timingSafeStringEqual(match[1], context.env.ADMIN_TOKEN))
   ) {
-    throw new DomainError("INVALID_REQUEST", 401, "管理員驗證失敗。");
+    logAdminLogin(context.get("requestId"), false);
+    throw adminLoginFailure();
   }
-  await verifyTurnstile(
-    context.env,
-    turnstileToken,
-    context.req.header("CF-Connecting-IP") ?? "local-development",
-    context.get("requestId"),
-    "admin",
-  );
   const expiresAt = await issueAdminSession(context);
+  logAdminLogin(context.get("requestId"), true);
   return context.json({
     authenticated: true,
     sessionExpiresAt: new Date(expiresAt * 1000).toISOString(),
@@ -164,6 +203,11 @@ adminRoutes.get("/session", (context) => {
 
 adminRoutes.delete("/session", async (context) => {
   await revokeCurrentAdminSession(context);
+  return context.body(null, 204);
+});
+
+adminRoutes.post("/sessions/revoke-all", async (context) => {
+  await revokeAllAdminSessions(context);
   return context.body(null, 204);
 });
 

@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import type { AppEnv } from "./app-types";
 import type { Bindings } from "./bindings";
-import { getConfig } from "./env";
+import { assertValidAdminToken, getConfig } from "./env";
 import { handleError } from "./middleware/error-handler";
 import { hostnameBoundaryMiddleware } from "./middleware/hostname-boundary";
 import { requestIdMiddleware } from "./middleware/request-id";
@@ -10,6 +10,7 @@ import { adminRoutes } from "./routes/admin";
 import { fileRoutes } from "./routes/files";
 import { invitationRoutes } from "./routes/invitations";
 import { mediaRoutes } from "./routes/media";
+import { sessionRoutes } from "./routes/session";
 import { storageRoutes } from "./routes/storage";
 import { uploadRoutes } from "./routes/uploads";
 import { reconcileStorage, runCleanup } from "./services/cleanup-service";
@@ -17,6 +18,10 @@ import { reconcileStorage, runCleanup } from "./services/cleanup-service";
 const app = new Hono<AppEnv>();
 
 app.use("*", requestIdMiddleware);
+app.use("*", async (context, next) => {
+  assertValidAdminToken(context.env.ADMIN_TOKEN);
+  await next();
+});
 app.use("*", securityHeadersMiddleware);
 app.use("*", hostnameBoundaryMiddleware);
 
@@ -31,6 +36,7 @@ app.route("/api", storageRoutes);
 app.route("/api", invitationRoutes);
 app.route("/api", uploadRoutes);
 app.route("/api", fileRoutes);
+app.route("/api", sessionRoutes);
 app.route("/api/admin", adminRoutes);
 app.route("/", mediaRoutes);
 
@@ -64,6 +70,7 @@ app.onError(handleError);
 export default {
   fetch: app.fetch,
   scheduled(controller, env, context): void {
+    assertValidAdminToken(env.ADMIN_TOKEN);
     context.waitUntil(
       (async () => {
         await runCleanup(env);

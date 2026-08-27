@@ -8,7 +8,7 @@ import {
   resetState,
 } from "./helpers";
 
-const adminToken = "test-admin-token-32-bytes-minimum";
+const adminToken = "test-admin-token-32-bytes-minimum-0123456789";
 let sessionCookie = "";
 let fileSequence = 0;
 

@@ -50,6 +50,17 @@ export async function revokeAdminSession(
     .run();
 }
 
+export async function revokeAllAdminSessions(database: D1Database, now: number): Promise<void> {
+  await database
+    .prepare(
+      `UPDATE admin_sessions
+       SET revoked_at = ?1
+       WHERE revoked_at IS NULL`,
+    )
+    .bind(now)
+    .run();
+}
+
 export async function purgeExpiredAdminSessions(
   database: D1Database,
   now: number,

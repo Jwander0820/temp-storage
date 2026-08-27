@@ -19,6 +19,8 @@ Cloudflare 資源。
 
 不要把 `.dev.vars` 加入 Git，也不要用範例檔直接覆寫既有 secrets。
 
+本機 `ADMIN_TOKEN` 同樣必須是 43–512 個 URL-safe 字元；可用 `python -c "import secrets; print(secrets.token_urlsafe(32))"` 產生。正式 Cloudflare Access 不在本機模擬，localhost 直接進入管理 token + Turnstile 流程。
+
 ## 啟動
 
 首次啟動或 migrations 更新後執行：
@@ -42,7 +44,7 @@ pnpm dev
 2. 建立測試邀請 A 與 B，確認兩者立即出現在「有效邀請」。
 3. 在兩個不同瀏覽器 context 開啟 A、B 連結並完成測試版 Turnstile。
 4. 使用 A 上傳一個不含私人資料的小圖片，使用 B 上傳文字或壓縮檔。
-5. 在 A 與 B 開啟 `http://localhost:8976/files`，確認兩邊都能看到兩個檔案，且共享頁沒有刪除操作。
+5. 在 A 與 B 開啟 `http://localhost:8976/files`，確認 `/api/session/capabilities` 回傳 `admin: false`、兩邊都能看到兩個檔案，且共享頁沒有刪除操作。
 6. 確認圖片縮圖使用 lazy loading，影片與音訊不會在清單頁自動播放或載入完整內容。
 7. 從共享頁複製單檔連結，在沒有 invitation session 的無痕視窗確認仍可開啟或下載。
 8. 在另一個無 session 的無痕視窗直接開啟 `/files`，確認只顯示邀請提示而不顯示清單。
@@ -52,6 +54,7 @@ pnpm dev
 11. 重新簽發邀請 A，確認新連結可用、舊連結與既有 A session 失效。
 12. 撤銷邀請 B，確認它移到「歷史邀請」，且既有 B session 無法再讀取 `/files`。
 13. 以 375px 手機 viewport 驗證單欄清單、載入更多、單檔頁與刪除確認都不會水平溢出。
+14. 建立多個 admin session 後執行「登出所有管理裝置」，確認目前與其他裝置都回到管理 token gate，`/api/session/capabilities` 回傳 `admin: false`。
 
 ## 本機資料位置
 

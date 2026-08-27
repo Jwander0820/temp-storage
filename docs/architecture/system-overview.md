@@ -71,16 +71,17 @@ test/                   # Workers runtime、D1 與 R2 整合測試
 
 ## 5. 信任與權限模型
 
-| 能力                | 取得方式                                      | 主要用途                                                             |
-| ------------------- | --------------------------------------------- | -------------------------------------------------------------------- |
-| 匿名公開能力        | 公開 route 或不可猜測的單檔 URL               | Health/config、有效單檔頁面、預覽或下載                              |
-| Invitation token    | 邀請 URL fragment                             | 經 Turnstile 交換 invitation session；不直接當 API Bearer token 使用 |
-| Invitation session  | HttpOnly Cookie                               | 共享檔案清單、容量、上傳；每次請求重新驗證邀請狀態與期限             |
-| Browse-only session | `can_upload = 0` 的 invitation session        | 可瀏覽、預覽與下載；所有 `/api/uploads/*` 由後端回覆 403             |
-| Admin session       | 管理 token + Turnstile 交換的 HttpOnly Cookie | 邀請管理、共享檔案瀏覽與管理員刪除                                   |
-| Delete token        | 完成上傳時一次回傳的 capability               | 刪除對應單檔，不授予其他檔案或管理能力                               |
+| 能力                | 取得方式                                  | 主要用途                                                             |
+| ------------------- | ----------------------------------------- | -------------------------------------------------------------------- |
+| 匿名公開能力        | 公開 route 或不可猜測的單檔 URL           | Health/config、有效單檔頁面、預覽或下載                              |
+| Invitation token    | 邀請 URL fragment                         | 經 Turnstile 交換 invitation session；不直接當 API Bearer token 使用 |
+| Invitation session  | HttpOnly Cookie                           | 共享檔案清單、容量、上傳；每次請求重新驗證邀請狀態與期限             |
+| Browse-only session | `can_upload = 0` 的 invitation session    | 可瀏覽、預覽與下載；所有 `/api/uploads/*` 由後端回覆 403             |
+| Admin bootstrap     | Access 後通過限流、Turnstile 與管理 token | 只可由 `POST /api/admin/session` 交換 admin session                  |
+| Admin session       | 4 小時 HttpOnly Cookie                    | 邀請管理、共享檔案 capability 與管理員刪除                           |
+| Delete token        | 完成上傳時一次回傳的 capability           | 刪除對應單檔，不授予其他檔案或管理能力                               |
 
-這些能力彼此獨立。Admin session 不自動授予上傳權限；browse-only invitation 不可因額度欄位或 UI 狀態繞過後端限制。
+這些能力彼此獨立。永久 `ADMIN_TOKEN` 不能直接操作管理 API；Admin session 不自動授予上傳權限；browse-only invitation 不可因額度欄位或 UI 狀態繞過後端限制。正式環境以 Cloudflare Access 只包住 `/admin`、`/admin/*` 與 `/api/admin/*`，不得讓一般邀請流程經過 Access。
 
 ## 6. 核心流程
 
@@ -92,7 +93,19 @@ test/                   # Workers runtime、D1 與 R2 整合測試
 4. Worker 驗證後建立短期 HttpOnly invitation session，回傳權限與剩餘額度。
 5. 複製邀請會新增等效連結，原連結與既有 session 保持有效；重新簽發或撤銷時，所有舊連結與相關 session 一併失效。
 
-### 6.2 上傳
+### 6.2 管理員登入
+
+```text
+Cloudflare Access（正式環境）
+  → ADMIN_LOGIN_RATE_LIMITER（5 次／分鐘／IP）
+  → Turnstile
+  → timing-safe ADMIN_TOKEN 比對
+  → 4 小時 HttpOnly Admin Session
+```
+
+所有後續 `/api/admin/*` 只接受 admin session。`GET /api/session/capabilities` 位於 Access 範圍外，只回傳 `admin: true/false` 給 `/files` 與 `/file/:id` 使用；真正管理動作仍由伺服器重新授權。
+
+### 6.3 上傳
 
 ```text
 POST /api/uploads/reserve
@@ -112,7 +125,7 @@ PUT /api/uploads/:uploadId
 
 物件 key 固定在 `temp-storage/objects/YYYY/MM/DD/:fileId`。檔案宣告 MIME、副檔名與內容偵測都會參與政策判斷；HTML、SVG、JavaScript 等主動內容 fail closed。
 
-### 6.3 瀏覽、預覽與下載
+### 6.4 瀏覽、預覽與下載
 
 - `/api/files` 需要有效 invitation 或 admin session，使用 `created_at + id` cursor 分頁。
 - 清單只回傳 `active` 且未到期的安全 public serializer，不含 object key、hash 或 invitation ID。
@@ -123,14 +136,14 @@ PUT /api/uploads/:uploadId
 
 邀請檔案數或容量用完時，只拒絕新的 reservation；既有有效 session 仍可瀏覽與下載。
 
-### 6.4 刪除
+### 6.5 刪除
 
 1. Delete-token route 或 admin route 將檔案進入刪除流程。
 2. D1 狀態避免重複扣除容量。
 3. R2 物件刪除後，metadata 保留一段時間供稽核與重試。
 4. 已刪除或到期檔案不再出現在共享清單，public item/download 回覆 404。
 
-### 6.5 Cleanup 與 reconciliation
+### 6.6 Cleanup 與 reconciliation
 
 每小時 Cron：
 
@@ -185,7 +198,9 @@ Schema 只透過 `migrations/` 依序演進。不得修改已在正式環境套�
 
 ### Admin session
 
+- `GET /api/session/capabilities`（公開、只回傳 capability）
 - `GET|POST|DELETE /api/admin/session`
+- `POST /api/admin/sessions/revoke-all`
 - `GET /api/admin/status`
 - `GET /api/admin/invitations`
 - `POST /api/admin/invitations`
@@ -201,7 +216,7 @@ Schema 只透過 `migrations/` 依序演進。不得修改已在正式環境套�
 
 ## 9. 設定與秘密
 
-非秘密設定集中在 `wrangler.jsonc` 的 `vars`，啟動時由 `src/env.ts` 驗證相依關係。Cloudflare bindings 包含 `ASSETS`、`DB`、`FILES` 與 `FILE_BROWSER_RATE_LIMITER`。
+非秘密設定集中在 `wrangler.jsonc` 的 `vars`，啟動時由 `src/env.ts` 驗證相依關係。Cloudflare bindings 包含 `ASSETS`、`DB`、`FILES`、`FILE_BROWSER_RATE_LIMITER` 與獨立的 `ADMIN_LOGIN_RATE_LIMITER`。
 
 必要秘密：
 

@@ -92,6 +92,10 @@ interface FileListResponse {
   readonly nextCursor: string | null;
 }
 
+interface SessionCapabilities {
+  readonly admin: boolean;
+}
+
 type TurnstileAction = "invite" | "admin";
 
 interface TurnstileApi {
@@ -192,6 +196,7 @@ const adminTokenInput = elementById("adminTokenInput", HTMLInputElement);
 const adminTurnstileContainer = elementById("adminTurnstileContainer", HTMLElement);
 const adminLoginButton = elementById("adminLoginButton", HTMLButtonElement);
 const adminWorkspace = elementById("adminWorkspace", HTMLElement);
+const revokeAllAdminSessionsButton = elementById("revokeAllAdminSessionsButton", HTMLButtonElement);
 const inviteForm = elementById("inviteForm", HTMLFormElement);
 const inviteLabelInput = elementById("inviteLabelInput", HTMLInputElement);
 const inviteDaysInput = elementById("inviteDaysInput", HTMLInputElement);
@@ -430,6 +435,13 @@ function parseFileList(value: unknown): FileListResponse {
   };
 }
 
+function parseSessionCapabilities(value: unknown): SessionCapabilities {
+  if (!isRecord(value) || typeof value.admin !== "boolean") {
+    throw new Error("Invalid session capabilities response.");
+  }
+  return { admin: value.admin };
+}
+
 function parseCompletedUpload(value: unknown): CompletedUpload {
   if (!isRecord(value)) {
     throw new Error("Invalid upload response.");
@@ -556,6 +568,34 @@ async function responseError(response: Response): Promise<string> {
   return `請求失敗（HTTP ${response.status}）`;
 }
 
+const ADMIN_AUTHENTICATION_UNAVAILABLE_MESSAGE = "管理員驗證已失效，請重新進入管理頁完成驗證。";
+
+class AdminAuthenticationUnavailableError extends Error {
+  constructor() {
+    super(ADMIN_AUTHENTICATION_UNAVAILABLE_MESSAGE);
+    this.name = "AdminAuthenticationUnavailableError";
+  }
+}
+
+function isAdminAuthenticationUnavailable(response: Response): boolean {
+  const contentType = response.headers.get("Content-Type") ?? "";
+  return (
+    response.status === 401 ||
+    response.status === 403 ||
+    response.redirected ||
+    contentType.includes("text/html")
+  );
+}
+
+async function requireAdminNoContent(response: Response): Promise<void> {
+  if (isAdminAuthenticationUnavailable(response)) {
+    throw new AdminAuthenticationUnavailableError();
+  }
+  if (response.status !== 204) {
+    throw new Error(await responseError(response));
+  }
+}
+
 async function copyText(value: string): Promise<void> {
   try {
     await navigator.clipboard.writeText(value);
@@ -680,9 +720,7 @@ function renderSharedFiles(): void {
     heading.textContent = "暫存區目前沒有可瀏覽的檔案";
     const message = document.createElement("p");
     message.textContent =
-      sharedFilesType === "all"
-        ? "有檔案上傳完成後，會顯示在這裡。"
-        : "這個類型目前沒有有效檔案。";
+      sharedFilesType === "all" ? "有檔案上傳完成後，會顯示在這裡。" : "這個類型目前沒有有效檔案。";
     empty.append(heading, message);
     sharedFileList.append(empty);
   }
@@ -743,7 +781,7 @@ async function initializeFilesPage(): Promise<void> {
   filePage.classList.add("is-hidden");
   filesPage.classList.remove("is-hidden");
   filesWorkspace.classList.remove("is-hidden");
-  adminSessionActive = await hasAdminSession().catch(() => false);
+  adminSessionActive = await hasAdminCapability().catch(() => false);
   setNavigationMode(adminSessionActive);
   adminFilesNotice.classList.toggle("is-hidden", !adminSessionActive);
   try {
@@ -1339,6 +1377,23 @@ async function hasAdminSession(): Promise<boolean> {
   return true;
 }
 
+async function hasAdminCapability(): Promise<boolean> {
+  const response = await fetch("/api/session/capabilities", { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(await responseError(response));
+  }
+  return parseSessionCapabilities(await response.json()).admin;
+}
+
+function clearAdminFileCapability(): void {
+  adminSessionActive = false;
+  setNavigationMode(true);
+  adminFilesNotice.classList.add("is-hidden");
+  if (window.location.pathname.startsWith("/files")) {
+    renderSharedFiles();
+  }
+}
+
 function requestAdminFileDeletion(file: PublicFile, trigger: HTMLButtonElement): void {
   pendingAdminDelete = { file, trigger };
   deleteFileMessage.textContent =
@@ -1361,9 +1416,7 @@ async function deletePendingAdminFile(): Promise<void> {
     const response = await fetch(`/api/admin/files/${encodeURIComponent(file.id)}`, {
       method: "DELETE",
     });
-    if (!response.ok) {
-      throw new Error(await responseError(response));
-    }
+    await requireAdminNoContent(response);
     sharedFiles = sharedFiles.filter((item) => item.id !== file.id);
     pendingAdminDelete = null;
     deleteFileDialog.close();
@@ -1376,7 +1429,16 @@ async function deletePendingAdminFile(): Promise<void> {
     sharedFilesStatus.tabIndex = -1;
     sharedFilesStatus.focus();
   } catch (error) {
-    showToast(error instanceof Error ? error.message : "無法刪除檔案，請再試一次。", "error");
+    if (error instanceof AdminAuthenticationUnavailableError || error instanceof TypeError) {
+      clearAdminFileCapability();
+      pendingAdminDelete = null;
+      deleteFileDialog.close();
+      trigger.remove();
+      showToast(ADMIN_AUTHENTICATION_UNAVAILABLE_MESSAGE, "error");
+      globalUploadLink.focus();
+    } else {
+      showToast(error instanceof Error ? error.message : "無法刪除檔案，請再試一次。", "error");
+    }
     trigger.disabled = false;
     confirmDeleteFileButton.disabled = false;
   } finally {
@@ -1754,6 +1816,41 @@ adminLoginButton.addEventListener("click", () => {
     });
 });
 
+revokeAllAdminSessionsButton.addEventListener("click", () => {
+  if (!window.confirm("這會立即撤銷所有管理員登入狀態，包括目前裝置。確定要繼續嗎？")) {
+    return;
+  }
+  revokeAllAdminSessionsButton.disabled = true;
+  revokeAllAdminSessionsButton.textContent = "正在登出所有裝置…";
+  void fetch("/api/admin/sessions/revoke-all", { method: "POST" })
+    .then(requireAdminNoContent)
+    .then(async () => {
+      adminSessionActive = false;
+      adminInvitations = [];
+      setAdminAuthenticated(false);
+      adminGateMessage.textContent = "所有管理員登入狀態已撤銷，請重新輸入管理 token。";
+      adminLoginButton.disabled = false;
+      await adminTurnstile.initialize(config?.turnstileSiteKey ?? "");
+      adminTurnstile.refresh();
+      adminTokenInput.focus();
+      showToast("所有管理裝置均已登出");
+    })
+    .catch((error: unknown) => {
+      showToast(
+        error instanceof AdminAuthenticationUnavailableError || error instanceof TypeError
+          ? ADMIN_AUTHENTICATION_UNAVAILABLE_MESSAGE
+          : error instanceof Error
+            ? error.message
+            : "無法登出所有管理裝置，請再試一次。",
+        "error",
+      );
+    })
+    .finally(() => {
+      revokeAllAdminSessionsButton.disabled = false;
+      revokeAllAdminSessionsButton.textContent = "登出所有管理裝置";
+    });
+});
+
 function updateInvitationPermissionFields(): void {
   const canUpload = inviteUploadModeInput.checked;
   inviteFilesInput.disabled = !canUpload || inviteUnlimitedFilesInput.checked;
@@ -1911,7 +2008,7 @@ async function loadFilePage(fileId: string): Promise<void> {
   adminPage.classList.add("is-hidden");
   filePage.classList.remove("is-hidden");
   filePage.textContent = "正在取得檔案資訊…";
-  adminSessionActive = await hasAdminSession().catch(() => false);
+  adminSessionActive = await hasAdminCapability().catch(() => false);
   setNavigationMode(adminSessionActive);
 
   const response = await fetch(`/api/files/${encodeURIComponent(fileId)}`);

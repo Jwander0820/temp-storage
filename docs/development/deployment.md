@@ -16,7 +16,7 @@
 | R2                | `cdn` bucket，僅使用 `temp-storage/objects/` prefix |
 | R2 Custom Domain  | `https://cdn.jwander.net`                           |
 | D1                | `jwander-temp-storage-db`                           |
-| Migration         | `0001`–`0007`                                       |
+| Migration         | `0001`–`0008`                                       |
 | Scheduled trigger | `0 * * * *`                                         |
 
 `cdn.jwander.net` 由既有 R2 Custom Domain 提供，不由 Worker 接管。Worker 只宣告 `upload.jwander.net`，且所有 R2 清理與 reconciliation 都必須限制在 `temp-storage/objects/`。
@@ -52,6 +52,7 @@ Workers Builds 使用的 API token 必須具備 Workers Scripts、D1、R2 與 Wo
 - `DB`：D1 `jwander-temp-storage-db`。
 - `FILES`：R2 `cdn` bucket。
 - `FILE_BROWSER_RATE_LIMITER`：共享檔案清單的 session 級限流。
+- `ADMIN_LOGIN_RATE_LIMITER`：`POST /api/admin/session` 的獨立 IP 級限流，預設每分鐘 5 次；不得與檔案瀏覽 binding 共用 namespace。
 
 在其他 Cloudflare 帳號重建時，必須更新 D1 `database_id`、Turnstile site key，並確認 Rate Limiting `namespace_id` 沒有和該帳號其他 binding 共用。
 
@@ -74,6 +75,14 @@ UPLOAD_ACCESS_CODE
 
 Secret 只能放在 Cloudflare runtime secrets 或本機 `.dev.vars`，不得寫入 GitHub Builds variables、repository、文件、log 或前端。
 
+`ADMIN_TOKEN` 必須是 43–512 個 URL-safe 字元（`A-Z`、`a-z`、`0-9`、`_`、`-`）。建議直接產生 32 bytes 隨機材料，而不是自行設計密碼：
+
+```powershell
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+公開 repository 前應輪替一次正式 `ADMIN_TOKEN`。Worker 會在處理請求前驗證 token 格式，缺少或強度格式不足時 fail closed。
+
 設定正式 secret：
 
 ```powershell
@@ -88,6 +97,20 @@ pnpm run cf:secret:admin
 ```powershell
 pnpm exec wrangler secret put UPLOAD_ACCESS_CODE
 ```
+
+## Cloudflare Access（手動設定）
+
+程式部署並驗證後，再由 Cloudflare Zero Trust 建立 self-hosted Access application，只保護：
+
+```text
+upload.jwander.net/admin
+upload.jwander.net/admin/*
+upload.jwander.net/api/admin/*
+```
+
+`/admin` 與 `/admin/*` 必須分別列出。Allow policy 只加入管理員身分，初始 Access session 可設為 24 小時。不得保護 `/`、`/invite`、`/files`、`/file/*`、檔案傳輸路由或 `/api/session/capabilities`，以免一般受邀使用者被迫登入 Access。
+
+Access 不由 Worker 程式模擬；本機只驗證 Turnstile、`ADMIN_TOKEN` 與 4 小時 admin session。正式環境的管理邊界為 Access + bootstrap token + admin session。
 
 ## 建立新環境
 
@@ -118,6 +141,7 @@ pnpm run deploy:cloudflare
 
 - D1 UUID、Turnstile site key 與所有 bindings 正確。
 - Runtime secrets 已設定。
+- `ADMIN_LOGIN_RATE_LIMITER` binding 已部署，且 namespace 未與其他 limiter 共用。
 - 新 migration 已完成驗證並可安全依序套用。
 - `cdn.jwander.net` 仍由 R2 Custom Domain 提供，`r2.dev` 保持關閉。
 - R2 Lifecycle Rule 只涵蓋 `temp-storage/objects/`。
@@ -137,6 +161,21 @@ Health 預期回傳：
 ```
 
 `GET /api/storage` 需要有效 invitation session，不是匿名健康檢查。部署後仍應透過瀏覽器驗證邀請交換、檔案清單、上傳或僅瀏覽權限、預覽、下載與管理頁。
+
+啟用 Access 後另以無痕視窗確認：
+
+- `/`、`/invite`、`/files`、`/file/:id` 與 `/api/session/capabilities` 不出現 Access 登入。
+- `/admin` 先通過 Access，再顯示管理 token gate。
+- 沒有 Access 時 `/api/admin/status` 在 Worker 前被阻擋。
+- 正確 `ADMIN_TOKEN` 直接放在其他 Admin API 的 Bearer header 仍回覆 401。
+
+## ADMIN_TOKEN 疑似外洩
+
+1. 輪替 Cloudflare Worker secret `ADMIN_TOKEN`。
+2. 通過 Cloudflare Access，以新 token 建立 admin session。
+3. 在管理頁執行「登出所有管理裝置」。
+4. 檢查邀請狀態、檔案刪除與其他管理操作。
+5. 檢查 Cloudflare／Worker logs；不得複製或輸出 Authorization、Cookie、Turnstile token 或 Access cookie。
 
 ## 邊緣防護與成本護欄
 

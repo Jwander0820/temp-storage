@@ -1,5 +1,7 @@
 import { DomainError } from "./domain/errors";
 
+const ADMIN_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43,512}$/u;
+
 export interface AppConfig {
   readonly maxStorageBytes: number;
   readonly maxFileBytes: number;
@@ -73,6 +75,12 @@ function parseOrigin(value: string, name: string): string {
     return url.origin;
   } catch {
     throw new DomainError("INTERNAL_ERROR", 500, `Invalid ${name} configuration.`);
+  }
+}
+
+export function assertValidAdminToken(value: string | undefined): asserts value is string {
+  if (value === undefined || !ADMIN_TOKEN_PATTERN.test(value)) {
+    throw new DomainError("INTERNAL_ERROR", 500, "Invalid ADMIN_TOKEN configuration.");
   }
 }
 

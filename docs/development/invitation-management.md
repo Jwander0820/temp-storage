@@ -4,7 +4,7 @@
 > 最後更新：2026-08-27  
 > 用途：建立、複製、重新簽發與撤銷共享暫存區邀請
 
-日常管理建議使用 `https://upload.jwander.net/admin`。CLI 適合管理員在受控終端快速建立「上傳與瀏覽」邀請；API 則提供自動化整合。
+所有日常邀請管理都使用 `https://upload.jwander.net/admin`。永久 `ADMIN_TOKEN` 只負責交換短效 admin session，不提供 CLI 或 Bearer API 旁路。
 
 ## 邀請權限
 
@@ -25,36 +25,9 @@
 - 為同一邀請複製新的等效連結，不影響原連結與既有 session。
 - 重新簽發或撤銷邀請。
 - 檢視與刪除有效檔案。
+- 登出所有管理裝置並立即撤銷全部 admin session。
 
-QR Code 在瀏覽器內產生，不會將邀請 token 傳給第三方。永久 `ADMIN_TOKEN` 只用來交換短效 HttpOnly admin session，不應保存於 localStorage 或 sessionStorage。
-
-## CLI 建立邀請
-
-CLI 目前建立「上傳與瀏覽」邀請。先以程序環境變數提供 `ADMIN_TOKEN`：
-
-```powershell
-$env:ADMIN_TOKEN = "你的管理 Token"
-```
-
-建立邀請：
-
-```powershell
-pnpm invite:create
-pnpm invite:create --label "upload" --days 7 --files 10 --mb 300
-pnpm invite:create:year -- --label "long-term" --files 10 --mb 300
-```
-
-Windows CMD 也可使用：
-
-```bat
-invite-create.cmd
-invite-create.cmd --label "upload" --days 7 --files 10 --mb 300
-invite-create-year.cmd --label "long-term" --files 10 --mb 300
-```
-
-腳本依序讀取目前程序的 `ADMIN_TOKEN`、`.env.local`、`.env`、`.dev.vars`，不會輸出管理 token。這些檔案都不得提交。
-
-成功後會顯示 invitation ID、到期時間與一次性的 `inviteUrl`，並在 Windows 嘗試複製到剪貼簿。
+QR Code 在瀏覽器內產生，不會將邀請 token 傳給第三方。管理 token 不應保存於 localStorage、sessionStorage、命令列參數或自動化腳本。舊的 `invite:create` CLI 已移除，避免繞過 Cloudflare Access 與 HttpOnly admin session 邊界。
 
 ## 邀請 URL 與 session
 
@@ -70,6 +43,6 @@ invite-create-year.cmd --label "long-term" --files 10 --mb 300
 
 不同分享對象應使用不同邀請；不再需要時立即撤銷。NFC 或 QR Code 只保存 `inviteUrl`，不得保存 `ADMIN_TOKEN` 或 Cloudflare secret。
 
-## API 自動化
+## Admin API
 
-API 路由、驗證方式與欄位範圍見 [`../reference/api.md`](../reference/api.md)。建立、複製或重新簽發邀請的 API 都只在該次回應傳回明文 token；呼叫端必須安全保存或立即交付 URL，不能期待之後從 D1 還原原始 token。
+API 路由、驗證方式與欄位範圍見 [`../reference/api.md`](../reference/api.md)。建立、複製或重新簽發邀請的 API 都需要有效 HttpOnly admin session，並只在該次回應傳回明文 token；呼叫端必須立即交付 URL，不能期待之後從 D1 還原原始 token。

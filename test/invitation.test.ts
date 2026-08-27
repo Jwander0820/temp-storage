@@ -1,9 +1,9 @@
 import { env, exports } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mockSuccessfulTurnstile, resetState } from "./helpers";
+import { createTestAdminSession, mockSuccessfulTurnstile, resetState } from "./helpers";
 
-const adminHeaders = {
-  Authorization: "Bearer test-admin-token-32-bytes-minimum",
+let adminHeaders = {
+  Cookie: "",
   "Content-Type": "application/json",
 };
 
@@ -56,6 +56,10 @@ async function exchange(token: string): Promise<{ response: Response; cookie: st
 describe("upload invitations", () => {
   beforeEach(async () => {
     await resetState();
+    adminHeaders = {
+      Cookie: await createTestAdminSession(),
+      "Content-Type": "application/json",
+    };
     mockSuccessfulTurnstile();
   });
 

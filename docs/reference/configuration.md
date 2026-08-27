@@ -22,6 +22,7 @@
 | 邀請預設額度       | 10 個檔案、300 MiB |
 | Invitation session |            12 小時 |
 | Admin session      |             4 小時 |
+| Admin 登入限流     |  每 IP 每分鐘 5 次 |
 
 ## 預設值的設計依據
 
@@ -110,6 +111,17 @@ UPLOAD_ACCESS_CODE
 ```
 
 `TURNSTILE_TEST_MODE=true` 是只放在本機環境的測試旗標，不是正式 secret；只有搭配官方測試 secret 才可啟用。任何 secret 都不得寫入 `wrangler.jsonc`、Git、前端、文件或 log。
+
+`ADMIN_TOKEN` 是只供 `POST /api/admin/session` 使用的 bootstrap credential，不是 Admin API master key。程式要求 43–512 個 URL-safe 字元；正式值應以 `python -c "import secrets; print(secrets.token_urlsafe(32))"` 產生並放入 Worker secret。其他 `/api/admin/*` 只接受有效 admin session。
+
+## Rate Limiting bindings
+
+| Binding                     | 限制         | Key                                      |
+| --------------------------- | ------------ | ---------------------------------------- |
+| `FILE_BROWSER_RATE_LIMITER` | 120 次／分鐘 | invitation/admin session principal       |
+| `ADMIN_LOGIN_RATE_LIMITER`  | 5 次／分鐘   | `CF-Connecting-IP`；本機使用固定開發 key |
+
+兩個 binding 必須使用不同 namespace。管理員登入限流在 Turnstile 與 `ADMIN_TOKEN` 比對之前執行，超限回覆 429 與中性訊息。
 
 ## 檔案政策
 

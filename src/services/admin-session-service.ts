@@ -6,6 +6,7 @@ import {
   createAdminSession,
   getActiveAdminSession,
   revokeAdminSession,
+  revokeAllAdminSessions as revokeAllAdminSessionsInRepository,
 } from "../repositories/admin-session-repository";
 import { hashPepperedValue, randomToken } from "../utils/hash";
 
@@ -52,5 +53,10 @@ export async function revokeCurrentAdminSession(context: Context<AppEnv>): Promi
     const tokenHash = await adminSessionTokenHash(context.env.DELETE_TOKEN_PEPPER, token);
     await revokeAdminSession(context.env.DB, tokenHash, Math.floor(Date.now() / 1000));
   }
+  deleteCookie(context, ADMIN_SESSION_COOKIE, { path: "/api", secure: true });
+}
+
+export async function revokeAllAdminSessions(context: Context<AppEnv>): Promise<void> {
+  await revokeAllAdminSessionsInRepository(context.env.DB, Math.floor(Date.now() / 1000));
   deleteCookie(context, ADMIN_SESSION_COOKIE, { path: "/api", secure: true });
 }

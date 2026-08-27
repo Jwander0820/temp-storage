@@ -28,6 +28,14 @@
         "period": 60,
       },
     },
+    {
+      "name": "ADMIN_LOGIN_RATE_LIMITER",
+      "namespace_id": "1002",
+      "simple": {
+        "limit": 5,
+        "period": 60,
+      },
+    },
   ],
   "r2_buckets": [
     {

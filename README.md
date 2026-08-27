@@ -76,13 +76,12 @@ pnpm dev
 
 ## 常用命令
 
-| 命令                 | 用途                                    |
-| -------------------- | --------------------------------------- |
-| `pnpm dev`           | 啟動本機 Worker、D1、R2 與前端 watch    |
-| `pnpm check`         | 執行型別、lint、測試與 build 檢查       |
-| `pnpm test`          | 執行 Workers、D1 與 R2 整合測試         |
-| `pnpm build`         | 建置前端並驗證 Worker deployment bundle |
-| `pnpm invite:create` | 以 CLI 建立上傳邀請                     |
+| 命令         | 用途                                    |
+| ------------ | --------------------------------------- |
+| `pnpm dev`   | 啟動本機 Worker、D1、R2 與前端 watch    |
+| `pnpm check` | 執行型別、lint、測試與 build 檢查       |
+| `pnpm test`  | 執行 Workers、D1 與 R2 整合測試         |
+| `pnpm build` | 建置前端並驗證 Worker deployment bundle |
 
 ## 部署
 

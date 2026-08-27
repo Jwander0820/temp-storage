@@ -94,7 +94,7 @@ Codex 的實際尋找順序與 scope 規則，以 [OpenAI 官方 AGENTS.md 文�
 
 - [`local-testing.md`](./development/local-testing.md)：完整本機手動測試流程。
 - [`deployment.md`](./development/deployment.md)：Cloudflare 資源、Workers Builds、secrets 與部署檢查。
-- [`invitation-management.md`](./development/invitation-management.md)：管理頁、CLI、邀請 URL 與撤銷方式。
+- [`invitation-management.md`](./development/invitation-management.md)：管理頁、邀請 URL 與撤銷方式。
 - [`commit-conventions.md`](./development/commit-conventions.md)：Conventional Commits 與拆分原則。
 
 ### Reference

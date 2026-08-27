@@ -1035,6 +1035,29 @@ input:not([type="checkbox"]):not([type="radio"]):focus {
   background: var(--surface);
   box-shadow: var(--shadow-sm);
 }
+.admin-security-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 24px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px clamp(20px, 3vw, 28px);
+  border: 1px solid color-mix(in srgb, var(--danger) 24%, var(--line));
+  border-radius: 20px;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+.admin-security-actions h2 {
+  margin: 6px 0 4px;
+  font-size: 1.15rem;
+}
+.admin-security-actions p:last-child {
+  margin: 0;
+  color: var(--muted);
+}
+.admin-security-actions .danger-button {
+  flex: 0 0 auto;
+}
 .section-heading {
   display: flex;
   gap: 20px;
@@ -1538,6 +1561,7 @@ input:not([type="checkbox"]):not([type="radio"]):focus {
   }
   .files-hero,
   .admin-hero,
+  .admin-security-actions,
   .section-heading,
   .file-browser-toolbar,
   .shared-warning,
