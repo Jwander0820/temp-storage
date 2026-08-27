@@ -2,19 +2,15 @@
   <img src="./public/brand-icon-128.png" width="128" height="128" alt="Jwander 暫存區品牌標誌" />
 </p>
 
-<h1 align="center">Jwander 暫存區</h1>
+<h1 align="center">暫存區</h1>
 
 <p align="center">
   部署於 Cloudflare 的邀請制共享暫存檔案服務。它提供類似私有雲端硬碟的上傳、瀏覽、預覽與下載體驗，並以期限、容量及邀請權限控制使用範圍。
 </p>
 
-## 服務入口
+## 線上服務
 
-| 用途       | 網址                                                         |
-| ---------- | ------------------------------------------------------------ |
-| 邀請與上傳 | [upload.jwander.net](https://upload.jwander.net)             |
-| 共享檔案   | [upload.jwander.net/files](https://upload.jwander.net/files) |
-| 管理介面   | [upload.jwander.net/admin](https://upload.jwander.net/admin) |
+個人正式服務部署於 [upload.jwander.net](https://upload.jwander.net)，僅供持有有效邀請的使用者使用，不是公開上傳空間。
 
 ## 主要功能
 
@@ -46,6 +42,21 @@
 - Cloudflare D1 metadata 與配額帳本
 - Cloudflare R2 檔案儲存
 - Turnstile、HttpOnly sessions 與 Workers Rate Limiting
+
+## 系統架構
+
+```text
+Browser
+  │
+  ▼
+Cloudflare Worker
+  ├── Auth / Invitation
+  ├── Quota Ledger ───── D1
+  ├── Upload ─────────── R2
+  └── Management
+```
+
+完整拓樸、權限模型與檔案生命週期見 [`docs/architecture/system-overview.md`](./docs/architecture/system-overview.md)。
 
 ## 快速開始
 
