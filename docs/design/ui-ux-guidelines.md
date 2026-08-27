@@ -182,6 +182,8 @@
 ### 7.5 圖示與影像
 
 - 使用同一套線性 SVG 視覺語言，線寬約 `1.7`、圓角端點與接點。
+- 品牌標誌固定使用雲朵與字母 J 組成的輪廓。標準彩色 icon 統一使用 `public/favicon.svg` 的品牌主色圓角矩形搭配白色標誌版本，適用於 masthead、瀏覽器 favicon 與 README 主視覺，確保亮暗背景皆有清楚對比。
+- `public/brand-mark.svg` 只保留給 Safari pinned tab 等必須使用單色遮罩的情境；原始 SVG、點陣輸出與概念展示稿保存在 [`assets/brand/`](./assets/brand/) 中，不直接作為頁面內容載入。
 - 圖示不能取代必要的文字；純圖示按鈕必須有 `aria-label`。
 - 不使用 Emoji 作為導覽、狀態或操作圖示。
 - 圖片縮圖使用 `object-fit: cover`，並預留尺寸避免載入造成版面跳動。

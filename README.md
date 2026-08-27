@@ -1,6 +1,12 @@
-# Jwander 暫存區
+<p align="center">
+  <img src="./public/brand-icon-128.png" width="128" height="128" alt="Jwander 暫存區品牌標誌" />
+</p>
 
-部署於 Cloudflare 的邀請制共享暫存檔案服務。它提供類似私有雲端硬碟的上傳、瀏覽、預覽與下載體驗，並以期限、容量及邀請權限控制使用範圍。
+<h1 align="center">Jwander 暫存區</h1>
+
+<p align="center">
+  部署於 Cloudflare 的邀請制共享暫存檔案服務。它提供類似私有雲端硬碟的上傳、瀏覽、預覽與下載體驗，並以期限、容量及邀請權限控制使用範圍。
+</p>
 
 ## 服務入口
 

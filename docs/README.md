@@ -26,7 +26,7 @@
 docs/
 ├─ README.md                 # 文件入口與維護方式
 ├─ architecture/            # 現行系統架構、資料流與未來 ADR
-├─ design/                  # UI/UX、內容語言與視覺規範
+├─ design/                   # UI/UX、內容語言、品牌資產與視覺規範
 ├─ development/             # 本機開發、測試、Git 與協作流程
 ├─ reference/               # API、設定值與穩定技術參考
 ├─ specifications/          # 尚在規劃、實作或驗收的功能規格
@@ -88,6 +88,7 @@ Codex 的實際尋找順序與 scope 規則，以 [OpenAI 官方 AGENTS.md 文�
 ### Design
 
 - [`ui-ux-guidelines.md`](./design/ui-ux-guidelines.md)：Quiet Utility Minimalism 設計系統與驗收規則。
+- [`assets/brand/`](./design/assets/brand/)：品牌標誌原始 SVG、點陣輸出與概念展示稿。
 
 ### Development
 

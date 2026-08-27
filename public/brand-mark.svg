@@ -1,6 +1,5 @@
 <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" width="639" viewBox="0 0 624 624" enable-background="new 0 0 624 624" xml:space="preserve" height="639">
-<rect width="624" height="624" rx="144" fill="#684B8D" />
-<path fill="#FFFFFF" opacity="1.000000" stroke="#FFFFFF" stroke-width="14" stroke-linejoin="round" transform="translate(70.5 53) scale(.78)" d="
+<path fill="#000000" opacity="1.000000" stroke="none" d="
 M370.515594,566.448730
 	C354.619202,591.681274 332.350922,607.192383 302.966736,609.875610
 	C265.807770,613.268677 236.706451,598.409912 216.762405,566.714722

@@ -159,21 +159,11 @@ svg {
   text-decoration: none;
 }
 .wordmark__mark {
-  display: grid;
   width: 40px;
   height: 40px;
-  place-items: center;
+  flex: none;
   border-radius: 12px;
-  background: var(--primary);
-  color: var(--on-primary);
-}
-.wordmark__mark svg {
-  width: 24px;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.6;
+  background: url("/favicon.svg") center / contain no-repeat;
 }
 .wordmark__text {
   display: grid;
