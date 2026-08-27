@@ -2,8 +2,8 @@ import { Hono } from "hono";
 import type { AppEnv } from "../app-types";
 import { DomainError } from "../domain/errors";
 import { getConfig } from "../env";
+import { fileBrowserAccessMiddleware } from "../middleware/file-browser-access";
 import { fileBrowserRateLimitMiddleware } from "../middleware/file-browser-rate-limit";
-import { uploadSessionMiddleware } from "../middleware/upload-session";
 import { getAccessibleFile } from "../repositories/file-repository";
 import { deleteFileWithToken } from "../services/deletion-service";
 import { browseActiveFiles, type BrowseFileType } from "../services/file-browser-service";
@@ -14,7 +14,7 @@ export const fileRoutes = new Hono<AppEnv>();
 
 fileRoutes.get(
   "/files",
-  uploadSessionMiddleware,
+  fileBrowserAccessMiddleware,
   fileBrowserRateLimitMiddleware,
   async (context) => {
     context.header("Cache-Control", "private, no-store");

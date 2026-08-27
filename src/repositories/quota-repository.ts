@@ -78,6 +78,7 @@ export async function reserveQuotaAndCreateRecords(
            WHERE invitation.id = ?5
              AND invitation.status = 'active'
              AND invitation.expires_at > ?4
+             AND invitation.can_upload = 1
              AND (
                invitation.unlimited_files = 1
                OR (
@@ -189,6 +190,7 @@ export async function reserveQuotaAndCreateRecords(
          max_files,
          unlimited_files,
          max_bytes,
+         can_upload,
          (SELECT COUNT(*) FROM rate_limit_events WHERE invitation_id = ?1) AS used_files,
          COALESCE((
            SELECT SUM(size_bytes) FROM rate_limit_events WHERE invitation_id = ?1
@@ -203,6 +205,7 @@ export async function reserveQuotaAndCreateRecords(
       max_files: number;
       unlimited_files: 0 | 1;
       max_bytes: number;
+      can_upload: 0 | 1;
       used_files: number;
       used_bytes: number;
     }>();
@@ -212,6 +215,13 @@ export async function reserveQuotaAndCreateRecords(
     invitation.expires_at <= input.createdAt
   ) {
     throw new DomainError("INVITATION_INVALID", 403, "邀請已失效，請向分享者取得新連結。");
+  }
+  if (invitation.can_upload !== 1) {
+    throw new DomainError(
+      "UPLOAD_NOT_ALLOWED",
+      403,
+      "這是僅瀏覽邀請，可瀏覽與下載檔案，但不能上傳。",
+    );
   }
   if (
     (invitation.unlimited_files !== 1 && invitation.used_files >= invitation.max_files) ||

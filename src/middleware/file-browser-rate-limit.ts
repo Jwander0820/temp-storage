@@ -6,7 +6,7 @@ const RETRY_AFTER_SECONDS = 60;
 
 export const fileBrowserRateLimitMiddleware = createMiddleware<AppEnv>(async (context, next) => {
   const { success } = await context.env.FILE_BROWSER_RATE_LIMITER.limit({
-    key: context.get("uploadSessionId"),
+    key: context.get("fileBrowserPrincipalId"),
   });
   if (!success) {
     context.header("Retry-After", String(RETRY_AFTER_SECONDS));

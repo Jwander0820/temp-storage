@@ -242,6 +242,16 @@ describe("shared file browser", () => {
     const cookie = (login.headers.get("Set-Cookie") ?? "").split(";", 1)[0] ?? "";
     const adminHeaders = { Cookie: cookie };
 
+    const sharedBrowse = await exports.default.fetch(
+      new Request("https://upload.example.test/api/files?type=all", {
+        headers: adminHeaders,
+      }),
+    );
+    expect(sharedBrowse.status).toBe(200);
+    await expect(sharedBrowse.json()).resolves.toMatchObject({
+      files: [{ id: fileId, filename: "delete-me.txt" }],
+    });
+
     const listed = await exports.default.fetch(
       new Request("https://upload.example.test/api/admin/files?status=active", {
         headers: adminHeaders,

@@ -34,7 +34,7 @@ describe("admin browser session", () => {
     expect(setCookie).toContain("HttpOnly");
     expect(setCookie).toContain("Secure");
     expect(setCookie).toContain("SameSite=Strict");
-    expect(setCookie).toContain("Path=/api/admin");
+    expect(setCookie).toContain("Path=/api");
     expect(setCookie).not.toContain(adminToken);
     const cookie = setCookie.split(";", 1)[0] ?? setCookie;
 
@@ -85,10 +85,10 @@ describe("admin browser session", () => {
     });
 
     const revoked = await exports.default.fetch(
-      new Request(
-        `https://upload.example.test/api/admin/invitations/${createdPayload.id}`,
-        { method: "DELETE", headers: { Cookie: cookie } },
-      ),
+      new Request(`https://upload.example.test/api/admin/invitations/${createdPayload.id}`, {
+        method: "DELETE",
+        headers: { Cookie: cookie },
+      }),
     );
     expect(revoked.status).toBe(204);
     expect(revoked.headers.get("Cache-Control")).toBe("private, no-store");

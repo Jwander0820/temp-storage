@@ -12,6 +12,7 @@ async function createInvitation(options?: {
   maxBytes?: number;
   expiresInSeconds?: number;
   unlimitedFiles?: boolean;
+  canUpload?: boolean;
 }) {
   const response = await exports.default.fetch(
     new Request("https://upload.example.test/api/admin/invitations", {
@@ -20,6 +21,7 @@ async function createInvitation(options?: {
       body: JSON.stringify({
         label: "朋友 A",
         expiresInSeconds: options?.expiresInSeconds ?? 86_400,
+        canUpload: options?.canUpload ?? true,
         maxFiles: options?.maxFiles ?? 3,
         unlimitedFiles: options?.unlimitedFiles ?? false,
         maxBytes: options?.maxBytes ?? 1024,
@@ -31,6 +33,7 @@ async function createInvitation(options?: {
     id: string;
     token: string;
     inviteUrl: string;
+    canUpload: boolean;
     maxFiles: number;
     unlimitedFiles: boolean;
     maxBytes: number;
@@ -91,6 +94,7 @@ describe("upload invitations", () => {
     await expect(session.json()).resolves.toMatchObject({
       authenticated: true,
       label: "朋友 A",
+      canUpload: true,
       remainingFiles: 3,
       unlimitedFiles: false,
       remainingBytes: 1024,
@@ -108,6 +112,55 @@ describe("upload invitations", () => {
     );
     expect(response.status).toBe(400);
     expect(response.headers.get("Set-Cookie")).toBeNull();
+  });
+
+  it("creates a named browse-only invitation that can list files but cannot upload", async () => {
+    const invitation = await createInvitation({ canUpload: false });
+    expect(invitation).toMatchObject({
+      canUpload: false,
+      maxFiles: 0,
+      unlimitedFiles: false,
+      maxBytes: 0,
+    });
+
+    const stored = await env.DB.prepare("SELECT can_upload FROM upload_invitations WHERE id = ?1")
+      .bind(invitation.id)
+      .first<{ can_upload: number }>();
+    expect(stored?.can_upload).toBe(0);
+
+    const { response, cookie } = await exchange(invitation.token);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      label: "朋友 A",
+      canUpload: false,
+      maxFiles: 0,
+      remainingFiles: 0,
+      maxBytes: 0,
+      remainingBytes: 0,
+    });
+
+    const browse = await exports.default.fetch(
+      new Request("https://upload.example.test/api/files", {
+        headers: { Cookie: cookie },
+      }),
+    );
+    expect(browse.status).toBe(200);
+
+    const reserve = await exports.default.fetch(
+      new Request("https://upload.example.test/api/uploads/reserve", {
+        method: "POST",
+        headers: { Cookie: cookie, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          filename: "blocked.txt",
+          sizeBytes: 1,
+          declaredMime: "text/plain",
+        }),
+      }),
+    );
+    expect(reserve.status).toBe(403);
+    await expect(reserve.json()).resolves.toMatchObject({
+      error: { code: "UPLOAD_NOT_ALLOWED" },
+    });
   });
 
   it("requires a valid invitation session on every upload endpoint", async () => {
@@ -231,6 +284,15 @@ describe("upload invitations", () => {
     await expect(limited.json()).resolves.toMatchObject({
       error: { code: "INVITATION_LIMIT_EXCEEDED" },
     });
+    expect(
+      (
+        await exports.default.fetch(
+          new Request("https://upload.example.test/api/files", {
+            headers: { Cookie: cookie },
+          }),
+        )
+      ).status,
+    ).toBe(200);
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
   });
 
@@ -301,10 +363,10 @@ describe("upload invitations", () => {
     expect(oldSession.response.status).toBe(200);
 
     const reissuedResponse = await exports.default.fetch(
-      new Request(
-        `https://upload.example.test/api/admin/invitations/${invitation.id}/reissue`,
-        { method: "POST", headers: adminHeaders },
-      ),
+      new Request(`https://upload.example.test/api/admin/invitations/${invitation.id}/reissue`, {
+        method: "POST",
+        headers: adminHeaders,
+      }),
     );
     expect(reissuedResponse.status).toBe(200);
     expect(reissuedResponse.headers.get("Cache-Control")).toBe("private, no-store");

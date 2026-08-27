@@ -29,7 +29,7 @@ export async function issueAdminSession(context: Context<AppEnv>): Promise<numbe
     httpOnly: true,
     secure: true,
     sameSite: "Strict",
-    path: "/api/admin",
+    path: "/api",
     maxAge: expiresAt - now,
   });
   return expiresAt;
@@ -52,5 +52,5 @@ export async function revokeCurrentAdminSession(context: Context<AppEnv>): Promi
     const tokenHash = await adminSessionTokenHash(context.env.DELETE_TOKEN_PEPPER, token);
     await revokeAdminSession(context.env.DB, tokenHash, Math.floor(Date.now() / 1000));
   }
-  deleteCookie(context, ADMIN_SESSION_COOKIE, { path: "/api/admin", secure: true });
+  deleteCookie(context, ADMIN_SESSION_COOKIE, { path: "/api", secure: true });
 }

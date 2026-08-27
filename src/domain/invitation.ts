@@ -8,6 +8,7 @@ export interface UploadInvitation {
   readonly max_files: number;
   readonly unlimited_files: 0 | 1;
   readonly max_bytes: number;
+  readonly can_upload: 0 | 1;
   readonly created_at: number;
   readonly expires_at: number;
   readonly revoked_at: number | null;

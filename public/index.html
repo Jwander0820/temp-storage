@@ -7,45 +7,96 @@
       name="description"
       content="Jwander 暫存區：快速上傳檔案並分享連結，檔案最多保留 90 天。"
     />
-    <meta name="theme-color" content="#07111d" />
+    <meta name="theme-color" content="#f3f2ed" />
     <meta
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; script-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; connect-src 'self' https://challenges.cloudflare.com; img-src 'self' data: https:; media-src 'self' blob: https:; style-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'"
     />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/cloud-drive.css" />
     <title>Jwander 暫存區</title>
   </head>
   <body>
-    <main class="shell">
+    <a class="skip-link" href="#mainContent">略過導覽，前往主要內容</a>
+    <main id="mainContent" class="shell">
       <header class="masthead">
         <a class="wordmark" href="/" aria-label="回到 Jwander 暫存區首頁">
-          <span class="wordmark__mark">J</span>
-          <span>Jwander 暫存區</span>
+          <span class="wordmark__mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" role="img">
+              <path
+                d="M5.75 7.75h4l1.5 2h7a1.75 1.75 0 0 1 1.75 1.75v5.75A1.75 1.75 0 0 1 18.25 19H5.75A1.75 1.75 0 0 1 4 17.25v-7.75A1.75 1.75 0 0 1 5.75 7.75Z"
+              />
+              <path d="M8 7.75V6.5A1.5 1.5 0 0 1 9.5 5h5A1.5 1.5 0 0 1 16 6.5v1.25" />
+            </svg>
+          </span>
+          <span class="wordmark__text">
+            <strong>Jwander</strong>
+            <small>暫存區</small>
+          </span>
         </a>
-        <p class="masthead__note">檔案最多保留 90 天</p>
+        <nav class="global-nav" aria-label="主要功能">
+          <a id="globalUploadLink" class="global-nav__link" href="/">
+            <svg class="global-nav__upload-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"
+              />
+            </svg>
+            <svg class="global-nav__admin-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M12 3.75 19 6.5v5.1c0 4.35-2.9 7.45-7 8.65-4.1-1.2-7-4.3-7-8.65V6.5l7-2.75Z"
+              />
+              <path d="M9.25 12.1 11 13.85l3.9-4" />
+            </svg>
+            <span id="globalPrimaryLabel">上傳</span>
+          </a>
+          <a id="globalFilesLink" class="global-nav__link" href="/files">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M3.75 7.75h6l1.5 2h9v8.5A1.75 1.75 0 0 1 19.5 20h-15a1.75 1.75 0 0 1-1.75-1.75V5.75A1.75 1.75 0 0 1 4.5 4h4l1.5 2h8.25A1.75 1.75 0 0 1 20 7.75v2"
+              />
+            </svg>
+            <span>檔案</span>
+          </a>
+        </nav>
+        <div class="masthead__actions">
+          <span class="retention-badge">最長保留 90 天</span>
+          <button
+            id="themeToggle"
+            class="icon-button theme-toggle"
+            type="button"
+            aria-label="切換深色模式"
+            aria-pressed="false"
+          >
+            <svg class="theme-toggle__sun" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="3.5" />
+              <path
+                d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42"
+              />
+            </svg>
+            <svg class="theme-toggle__moon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M20 15.2A8.6 8.6 0 0 1 8.8 4a8.6 8.6 0 1 0 11.2 11.2Z" />
+            </svg>
+          </button>
+        </div>
       </header>
 
       <div id="uploadPage">
         <section class="hero" aria-labelledby="hero-title">
           <div class="hero__copy">
-            <p class="eyebrow">邀請制傳檔與分享</p>
-            <h1 id="hero-title">Jwander 暫存區</h1>
-            <p class="hero__lede">
-              透過有效邀請連結進入上傳空間。檔案最多保留 90 天，請在到期前下載。
-            </p>
+            <h1 id="hero-title">檔案暫存區</h1>
+            <p class="hero__lede">透過邀請安全上傳與分享，檔案到期後自動清除。</p>
           </div>
         </section>
 
         <section id="inviteGate" class="invitation-gate" aria-live="polite">
-          <p class="label">Invitation required</p>
-          <h2 id="inviteGateTitle">需要有效的上傳邀請</h2>
+          <p class="label">邀請驗證</p>
+          <h2 id="inviteGateTitle">需要有效的邀請</h2>
           <p id="inviteGateMessage">
             請使用分享者提供的完整邀請連結，或掃描對方提供的 NFC／QR Code。
           </p>
           <div id="inviteVerification" class="invitation-verification is-hidden">
             <label id="accessCodeField" class="access-code is-hidden">
-              <span class="label">私人上傳碼</span>
+              <span class="label">私人存取碼</span>
               <input
                 id="accessCodeInput"
                 type="password"
@@ -55,16 +106,12 @@
             </label>
             <div id="turnstileContainer" class="turnstile-slot" aria-live="polite"></div>
             <button id="verifyInviteButton" class="primary-button" type="button">
-              驗證並進入上傳空間
+              驗證並進入暫存區
             </button>
           </div>
         </section>
 
         <section id="uploadWorkspace" class="workspace is-hidden" aria-labelledby="upload-title">
-          <nav class="workspace-nav" aria-label="暫存區功能">
-            <a class="workspace-nav__link is-current" href="/" aria-current="page">上傳檔案</a>
-            <a class="workspace-nav__link" href="/files">瀏覽檔案</a>
-          </nav>
           <aside class="shared-warning" aria-label="共享暫存區提醒">
             <strong>這是共享暫存區</strong>
             <span>上傳內容可能被其他受邀者看到，請勿上傳私密資料。</span>
@@ -134,11 +181,9 @@
       <section id="filesPage" class="files-page is-hidden" aria-labelledby="files-title">
         <header class="files-hero">
           <div>
-            <p class="eyebrow">Invitation-only directory</p>
-            <h1 id="files-title">共享檔案</h1>
+            <h1 id="files-title">所有檔案</h1>
             <p>所有受邀者都能瀏覽目前有效的暫存檔案。檔案到期或刪除後會從這裡消失。</p>
           </div>
-          <a class="text-link" href="/">返回上傳頁</a>
         </header>
 
         <aside class="shared-warning shared-warning--prominent" aria-label="共享暫存區提醒">
@@ -147,13 +192,17 @@
         </aside>
 
         <section id="filesInviteGate" class="invitation-gate is-hidden" aria-live="polite">
-          <p class="label">Invitation required</p>
-          <h2>需要有效的上傳邀請</h2>
+          <p class="label">邀請驗證</p>
+          <h2>需要有效的邀請</h2>
           <p>請使用分享者提供的完整邀請連結進入；驗證成功後即可回到這裡瀏覽檔案。</p>
           <a class="primary-button primary-button--link" href="/">查看邀請提示</a>
         </section>
 
         <div id="filesWorkspace" class="files-workspace is-hidden">
+          <aside id="adminFilesNotice" class="admin-files-notice is-hidden">
+            <strong>管理員模式</strong>
+            <span>你可以瀏覽所有有效檔案，並直接執行刪除。</span>
+          </aside>
           <div class="file-browser-toolbar">
             <div>
               <p class="label">顯示類型</p>
@@ -217,13 +266,9 @@
       <section id="adminPage" class="admin-page is-hidden" aria-labelledby="admin-title">
         <header class="admin-hero">
           <div>
-            <p class="eyebrow">Invitation desk</p>
-            <h1 id="admin-title">暫存區管理</h1>
-            <p>集中管理上傳邀請與共享檔案；管理 session 不會賦予上傳權限。</p>
+            <h1 id="admin-title">管理控制台</h1>
+            <p>集中管理存取邀請與共享檔案；管理 session 不會賦予上傳權限。</p>
           </div>
-          <button id="adminLogoutButton" class="text-button is-hidden" type="button">
-            結束管理 session
-          </button>
         </header>
 
         <section id="adminGate" class="admin-gate" aria-live="polite">
@@ -253,13 +298,41 @@
                 <p class="label">建立邀請</p>
                 <h2 id="create-invite-title">設定使用範圍</h2>
               </div>
-              <p>額度由所有使用同一連結的裝置共同消耗。</p>
+              <p>同一邀請連結的所有裝置共用額度。</p>
             </div>
             <form id="inviteForm" class="invite-form">
               <label class="form-field form-field--wide">
                 <span>標籤</span>
-                <input id="inviteLabelInput" name="label" maxlength="80" value="upload" required />
+                <input id="inviteLabelInput" name="label" maxlength="80" required />
               </label>
+              <fieldset class="invitation-mode form-field--wide">
+                <legend>邀請權限</legend>
+                <label>
+                  <input
+                    id="inviteUploadModeInput"
+                    name="invitationPermission"
+                    type="radio"
+                    value="upload"
+                    checked
+                  />
+                  <span>
+                    <strong>上傳與瀏覽</strong>
+                    <small>可以瀏覽、下載，並依設定額度上傳檔案。</small>
+                  </span>
+                </label>
+                <label>
+                  <input
+                    id="inviteBrowseModeInput"
+                    name="invitationPermission"
+                    type="radio"
+                    value="browse"
+                  />
+                  <span>
+                    <strong>僅瀏覽與下載</strong>
+                    <small>檔案數與容量皆為 0，無法建立任何上傳。</small>
+                  </span>
+                </label>
+              </fieldset>
               <label class="form-field">
                 <span>有效天數</span>
                 <input
@@ -283,10 +356,6 @@
                   value="10"
                   required
                 />
-                <span class="checkbox-field">
-                  <input id="inviteUnlimitedFilesInput" name="unlimitedFiles" type="checkbox" />
-                  不限檔案數
-                </span>
               </label>
               <label class="form-field">
                 <span>總容量 MiB</span>
@@ -299,6 +368,13 @@
                   value="300"
                   required
                 />
+              </label>
+              <label class="checkbox-field form-field--wide">
+                <input id="inviteUnlimitedFilesInput" name="unlimitedFiles" type="checkbox" />
+                <span>
+                  <strong>不限檔案數</strong>
+                  <small>不限制 reservation 數量，仍會受到總容量與到期時間限制。</small>
+                </span>
               </label>
               <button id="createInviteButton" class="primary-button form-submit" type="submit">
                 建立並複製邀請
@@ -329,44 +405,66 @@
               </button>
             </div>
             <div class="invitation-groups" aria-live="polite">
-              <section class="invitation-group" aria-labelledby="active-invitations-title">
-                <h3 id="active-invitations-title">有效邀請</h3>
+              <details class="invitation-group" open>
+                <summary>
+                  <span>
+                    <span id="active-invitations-title" class="invitation-group__title"
+                      >有效邀請</span
+                    >
+                    <span id="activeInvitationCount" class="count-badge">0</span>
+                  </span>
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="m7.5 9.5 4.5 4.5 4.5-4.5" />
+                  </svg>
+                </summary>
                 <div id="activeInvitationList" class="invitation-list">
                   <p class="empty-state">正在讀取邀請。</p>
                 </div>
-              </section>
-              <section class="invitation-group" aria-labelledby="invitation-history-title">
-                <h3 id="invitation-history-title">歷史邀請</h3>
+                <nav
+                  id="activeInvitationPagination"
+                  class="invitation-pagination is-hidden"
+                  aria-label="有效邀請分頁"
+                >
+                  <button id="activeInvitationPrevious" class="text-button" type="button">
+                    上一頁
+                  </button>
+                  <span id="activeInvitationPageStatus">第 1 頁</span>
+                  <button id="activeInvitationNext" class="text-button" type="button">
+                    下一頁
+                  </button>
+                </nav>
+              </details>
+              <details class="invitation-group">
+                <summary>
+                  <span>
+                    <span id="invitation-history-title" class="invitation-group__title"
+                      >歷史邀請</span
+                    >
+                    <span id="invitationHistoryCount" class="count-badge">0</span>
+                  </span>
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="m7.5 9.5 4.5 4.5 4.5-4.5" />
+                  </svg>
+                </summary>
                 <p class="invitation-group__hint">已撤銷與已到期的邀請會保留在這裡。</p>
                 <div id="invitationHistoryList" class="invitation-list">
                   <p class="empty-state">正在讀取邀請。</p>
                 </div>
-              </section>
+                <nav
+                  id="invitationHistoryPagination"
+                  class="invitation-pagination is-hidden"
+                  aria-label="歷史邀請分頁"
+                >
+                  <button id="invitationHistoryPrevious" class="text-button" type="button">
+                    上一頁
+                  </button>
+                  <span id="invitationHistoryPageStatus">第 1 頁</span>
+                  <button id="invitationHistoryNext" class="text-button" type="button">
+                    下一頁
+                  </button>
+                </nav>
+              </details>
             </div>
-          </section>
-
-          <section id="admin-files" class="admin-files-panel" aria-labelledby="admin-files-title">
-            <div class="section-heading">
-              <div>
-                <p class="label">共享檔案帳本</p>
-                <h2 id="admin-files-title">檔案管理</h2>
-              </div>
-              <div class="admin-files-summary">
-                <p id="adminStorageStatus">正在讀取容量。</p>
-                <button id="refreshAdminFilesButton" class="text-button" type="button">
-                  重新整理
-                </button>
-              </div>
-            </div>
-            <p class="admin-files-panel__note">
-              預設顯示仍可公開存取的檔案。刪除後會從清單移除；已載入或快取的公開預覽可能短暫保留。
-            </p>
-            <div id="adminFileList" class="admin-file-list" aria-live="polite">
-              <p class="empty-state">正在讀取檔案。</p>
-            </div>
-            <button id="loadMoreAdminFilesButton" class="secondary-button is-hidden" type="button">
-              載入更多
-            </button>
           </section>
         </div>
       </section>

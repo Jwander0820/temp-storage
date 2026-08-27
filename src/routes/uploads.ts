@@ -59,6 +59,16 @@ function isByteStream(value: unknown): value is ReadableStream<Uint8Array> {
 
 export const uploadRoutes = new Hono<AppEnv>();
 uploadRoutes.use("/uploads/*", uploadSessionMiddleware);
+uploadRoutes.use("/uploads/*", async (context, next) => {
+  if (!context.get("uploadCanUpload")) {
+    throw new DomainError(
+      "UPLOAD_NOT_ALLOWED",
+      403,
+      "這是僅瀏覽邀請，可瀏覽與下載檔案，但不能上傳。",
+    );
+  }
+  await next();
+});
 
 uploadRoutes.post("/uploads/reserve", async (context) => {
   const config = getConfig(context.env);

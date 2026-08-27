@@ -35,6 +35,7 @@ const FILE_STATUSES = new Set<FileStatus>([
 interface CreateInvitationRequest {
   readonly label: string;
   readonly expiresInSeconds: number;
+  readonly canUpload: boolean;
   readonly maxFiles: number;
   readonly unlimitedFiles: boolean;
   readonly maxBytes: number;
@@ -47,6 +48,7 @@ function parseCreateInvitation(value: unknown, config: AppConfig): CreateInvitat
   const record = value as Record<string, unknown>;
   const label = record.label;
   const expiresInSeconds = record.expiresInSeconds ?? config.invitationDefaultTtlSeconds;
+  const canUpload = record.canUpload ?? true;
   const maxFiles = record.maxFiles ?? config.invitationDefaultMaxFiles;
   const unlimitedFiles = record.unlimitedFiles ?? false;
   const maxBytes = record.maxBytes ?? config.invitationDefaultMaxBytes;
@@ -57,22 +59,25 @@ function parseCreateInvitation(value: unknown, config: AppConfig): CreateInvitat
     !Number.isSafeInteger(expiresInSeconds) ||
     (expiresInSeconds as number) < config.invitationMinTtlSeconds ||
     (expiresInSeconds as number) > config.invitationMaxTtlSeconds ||
-    !Number.isSafeInteger(maxFiles) ||
-    (maxFiles as number) < 1 ||
-    (maxFiles as number) > config.invitationMaxFiles ||
-    typeof unlimitedFiles !== "boolean" ||
-    !Number.isSafeInteger(maxBytes) ||
-    (maxBytes as number) < 1 ||
-    (maxBytes as number) > config.maxStorageBytes
+    typeof canUpload !== "boolean" ||
+    (canUpload &&
+      (!Number.isSafeInteger(maxFiles) ||
+        (maxFiles as number) < 1 ||
+        (maxFiles as number) > config.invitationMaxFiles ||
+        typeof unlimitedFiles !== "boolean" ||
+        !Number.isSafeInteger(maxBytes) ||
+        (maxBytes as number) < 1 ||
+        (maxBytes as number) > config.maxStorageBytes))
   ) {
     throw new DomainError("INVALID_REQUEST", 400, "邀請限制格式不正確。");
   }
   return {
     label: label.trim(),
     expiresInSeconds: expiresInSeconds as number,
-    maxFiles: maxFiles as number,
-    unlimitedFiles,
-    maxBytes: maxBytes as number,
+    canUpload,
+    maxFiles: canUpload ? (maxFiles as number) : 1,
+    unlimitedFiles: canUpload ? (unlimitedFiles as boolean) : false,
+    maxBytes: canUpload ? (maxBytes as number) : 1,
   };
 }
 
@@ -255,6 +260,7 @@ adminRoutes.post("/invitations", async (context) => {
     maxFiles: input.maxFiles,
     unlimitedFiles: input.unlimitedFiles,
     maxBytes: input.maxBytes,
+    canUpload: input.canUpload,
     createdAt: now,
     expiresAt: now + input.expiresInSeconds,
   });
@@ -265,9 +271,10 @@ adminRoutes.post("/invitations", async (context) => {
       label: input.label,
       inviteUrl: `${config.uploadOrigin}/invite#token=${token}`,
       token,
-      maxFiles: input.maxFiles,
-      unlimitedFiles: input.unlimitedFiles,
-      maxBytes: input.maxBytes,
+      canUpload: input.canUpload,
+      maxFiles: input.canUpload ? input.maxFiles : 0,
+      unlimitedFiles: input.canUpload ? input.unlimitedFiles : false,
+      maxBytes: input.canUpload ? input.maxBytes : 0,
       expiresAt: new Date((now + input.expiresInSeconds) * 1000).toISOString(),
     },
     201,
@@ -282,9 +289,10 @@ adminRoutes.get("/invitations", async (context) => {
       id: invitation.id,
       label: invitation.label,
       status: invitationStatus(invitation, now),
-      maxFiles: invitation.max_files,
-      unlimitedFiles: invitation.unlimited_files === 1,
-      maxBytes: invitation.max_bytes,
+      canUpload: invitation.can_upload === 1,
+      maxFiles: invitation.can_upload === 1 ? invitation.max_files : 0,
+      unlimitedFiles: invitation.can_upload === 1 && invitation.unlimited_files === 1,
+      maxBytes: invitation.can_upload === 1 ? invitation.max_bytes : 0,
       usedFiles: invitation.used_files,
       usedBytes: invitation.used_bytes,
       createdAt: new Date(invitation.created_at * 1000).toISOString(),
@@ -316,9 +324,10 @@ adminRoutes.post("/invitations/:invitationId/reissue", async (context) => {
     label: invitation.label,
     inviteUrl: `${config.uploadOrigin}/invite#token=${token}`,
     token,
-    maxFiles: invitation.max_files,
-    unlimitedFiles: invitation.unlimited_files === 1,
-    maxBytes: invitation.max_bytes,
+    canUpload: invitation.can_upload === 1,
+    maxFiles: invitation.can_upload === 1 ? invitation.max_files : 0,
+    unlimitedFiles: invitation.can_upload === 1 && invitation.unlimited_files === 1,
+    maxBytes: invitation.can_upload === 1 ? invitation.max_bytes : 0,
     expiresAt: new Date(invitation.expires_at * 1000).toISOString(),
   });
 });

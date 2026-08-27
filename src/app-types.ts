@@ -6,5 +6,7 @@ export interface AppEnv {
     requestId: string;
     uploadInvitationId: string;
     uploadSessionId: string;
+    uploadCanUpload: boolean;
+    fileBrowserPrincipalId: string;
   };
 }

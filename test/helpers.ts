@@ -52,6 +52,7 @@ export async function createTestInvitation(options?: {
   readonly maxFiles?: number;
   readonly maxBytes?: number;
   readonly expiresAt?: number;
+  readonly canUpload?: boolean;
 }): Promise<string> {
   const id = options?.id ?? TEST_INVITATION_ID;
   const now = options?.now ?? Math.floor(Date.now() / 1000);
@@ -62,6 +63,7 @@ export async function createTestInvitation(options?: {
     maxFiles: options?.maxFiles ?? 100,
     unlimitedFiles: false,
     maxBytes: options?.maxBytes ?? 3221225472,
+    canUpload: options?.canUpload ?? true,
     createdAt: now - 1,
     expiresAt: options?.expiresAt ?? now + 2_592_000,
   });
@@ -78,6 +80,7 @@ export async function createTestInvitationSession(): Promise<string> {
     maxFiles: 100,
     unlimitedFiles: false,
     maxBytes: 3221225472,
+    canUpload: true,
     createdAt: now - 1,
     expiresAt: now + 2_592_000,
   });
