@@ -357,10 +357,92 @@ describe("upload invitations", () => {
     ).toBe(401);
   });
 
+  it("copies an active invitation without invalidating existing links or sessions", async () => {
+    const invitation = await createInvitation({ maxFiles: 7, maxBytes: 2048 });
+    const oldSession = await exchange(invitation.token);
+    expect(oldSession.response.status).toBe(200);
+
+    const copiedResponse = await exports.default.fetch(
+      new Request(`https://upload.example.test/api/admin/invitations/${invitation.id}/copy`, {
+        method: "POST",
+        headers: adminHeaders,
+      }),
+    );
+    expect(copiedResponse.status).toBe(200);
+    expect(copiedResponse.headers.get("Cache-Control")).toBe("private, no-store");
+    const copied = await copiedResponse.json<{
+      id: string;
+      token: string;
+      inviteUrl: string;
+      maxFiles: number;
+      maxBytes: number;
+      expiresAt: string;
+    }>();
+    expect(copied).toMatchObject({
+      id: invitation.id,
+      maxFiles: 7,
+      maxBytes: 2048,
+      expiresAt: invitation.expiresAt,
+    });
+    expect(copied.token).not.toBe(invitation.token);
+    expect(copied.inviteUrl).toContain(copied.token);
+
+    const stored = await env.DB.prepare(
+      "SELECT token_hash FROM upload_invitation_tokens WHERE invitation_id = ?1",
+    )
+      .bind(invitation.id)
+      .first<{ token_hash: string }>();
+    expect(stored?.token_hash).toHaveLength(64);
+    expect(stored?.token_hash).not.toBe(copied.token);
+
+    expect((await exchange(invitation.token)).response.status).toBe(200);
+    expect(
+      (
+        await exports.default.fetch(
+          new Request("https://upload.example.test/api/invitations/session", {
+            headers: { Cookie: oldSession.cookie },
+          }),
+        )
+      ).status,
+    ).toBe(200);
+    expect((await exchange(copied.token)).response.status).toBe(200);
+  });
+
+  it("refuses to copy a revoked invitation", async () => {
+    const invitation = await createInvitation();
+    await exports.default.fetch(
+      new Request(`https://upload.example.test/api/admin/invitations/${invitation.id}`, {
+        method: "DELETE",
+        headers: adminHeaders,
+      }),
+    );
+
+    const copiedResponse = await exports.default.fetch(
+      new Request(`https://upload.example.test/api/admin/invitations/${invitation.id}/copy`, {
+        method: "POST",
+        headers: adminHeaders,
+      }),
+    );
+    expect(copiedResponse.status).toBe(409);
+    await expect(copiedResponse.json()).resolves.toMatchObject({
+      error: { code: "INVITATION_INVALID" },
+    });
+  });
+
   it("reissues an active invitation while preserving its quota and revoking old access", async () => {
     const invitation = await createInvitation({ maxFiles: 7, maxBytes: 2048 });
     const oldSession = await exchange(invitation.token);
     expect(oldSession.response.status).toBe(200);
+
+    const copiedResponse = await exports.default.fetch(
+      new Request(`https://upload.example.test/api/admin/invitations/${invitation.id}/copy`, {
+        method: "POST",
+        headers: adminHeaders,
+      }),
+    );
+    const copied = await copiedResponse.json<{ token: string }>();
+    const copiedSession = await exchange(copied.token);
+    expect(copiedSession.response.status).toBe(200);
 
     const reissuedResponse = await exports.default.fetch(
       new Request(`https://upload.example.test/api/admin/invitations/${invitation.id}/reissue`, {
@@ -388,11 +470,21 @@ describe("upload invitations", () => {
     expect(reissued.inviteUrl).toContain(reissued.token);
 
     expect((await exchange(invitation.token)).response.status).toBe(403);
+    expect((await exchange(copied.token)).response.status).toBe(403);
     expect(
       (
         await exports.default.fetch(
           new Request("https://upload.example.test/api/invitations/session", {
             headers: { Cookie: oldSession.cookie },
+          }),
+        )
+      ).status,
+    ).toBe(401);
+    expect(
+      (
+        await exports.default.fetch(
+          new Request("https://upload.example.test/api/invitations/session", {
+            headers: { Cookie: copiedSession.cookie },
           }),
         )
       ).status,

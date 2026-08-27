@@ -7,6 +7,7 @@ import { adminAuthMiddleware } from "../middleware/admin-auth";
 import { listAdminFiles } from "../repositories/file-repository";
 import {
   createInvitation,
+  issueAdditionalInvitationToken,
   invitationStatus,
   listInvitations,
   reissueInvitationToken,
@@ -302,6 +303,33 @@ adminRoutes.get("/invitations", async (context) => {
           ? null
           : new Date(invitation.revoked_at * 1000).toISOString(),
     })),
+  });
+});
+
+adminRoutes.post("/invitations/:invitationId/copy", async (context) => {
+  const config = getConfig(context.env);
+  const now = Math.floor(Date.now() / 1000);
+  const token = randomToken(32);
+  const invitation = await issueAdditionalInvitationToken(
+    context.env.DB,
+    context.req.param("invitationId"),
+    await createInvitationTokenHash(context.env.DELETE_TOKEN_PEPPER, token),
+    now,
+  );
+  if (invitation === null) {
+    throw new DomainError("INVITATION_INVALID", 409, "只有尚未到期的有效邀請可以複製。");
+  }
+
+  return context.json({
+    id: invitation.id,
+    label: invitation.label,
+    inviteUrl: `${config.uploadOrigin}/invite#token=${token}`,
+    token,
+    canUpload: invitation.can_upload === 1,
+    maxFiles: invitation.can_upload === 1 ? invitation.max_files : 0,
+    unlimitedFiles: invitation.can_upload === 1 && invitation.unlimited_files === 1,
+    maxBytes: invitation.can_upload === 1 ? invitation.max_bytes : 0,
+    expiresAt: new Date(invitation.expires_at * 1000).toISOString(),
   });
 });
 

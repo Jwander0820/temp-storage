@@ -56,6 +56,7 @@ GET    /api/admin/status
 GET    /api/admin/files
 POST   /api/admin/invitations
 GET    /api/admin/invitations
+POST   /api/admin/invitations/:invitationId/copy
 POST   /api/admin/invitations/:invitationId/reissue
 DELETE /api/admin/invitations/:invitationId
 POST   /api/admin/cleanup
@@ -74,7 +75,7 @@ DELETE /api/admin/files/:fileId
 - `cursor`
 - `limit`：最大 100
 
-建立邀請時可設定 label、期限、`canUpload`、檔案數與容量。明文 invitation token 只在建立或重新簽發時回傳一次；D1 只保存 hash。
+建立邀請時可設定 label、期限、`canUpload`、檔案數與容量。`copy` 會為同一邀請新增等效連結，不撤銷舊連結或 session；`reissue` 則會使全部舊連結與相關 session 失效。明文 invitation token 只在建立、複製或重新簽發時回傳一次；D1 只保存 hash。
 
 ## 回應與安全原則
 

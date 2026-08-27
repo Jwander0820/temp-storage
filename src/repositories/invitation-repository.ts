@@ -69,11 +69,13 @@ export async function getInvitationByTokenHash(
 ): Promise<UploadInvitation | null> {
   return database
     .prepare(
-      `SELECT *
-       FROM upload_invitations
-       WHERE token_hash = ?1
-         AND status = 'active'
-         AND expires_at > ?2`,
+      `SELECT i.*
+       FROM upload_invitations i
+       LEFT JOIN upload_invitation_tokens token ON token.invitation_id = i.id
+       WHERE (i.token_hash = ?1 OR token.token_hash = ?1)
+         AND i.status = 'active'
+         AND i.expires_at > ?2
+       LIMIT 1`,
     )
     .bind(tokenHash, now)
     .first<UploadInvitation>();
@@ -193,6 +195,19 @@ export async function reissueInvitationToken(
       .bind(tokenHash, invitationId, now),
     database
       .prepare(
+        `DELETE FROM upload_invitation_tokens
+         WHERE invitation_id = ?1
+           AND EXISTS (
+             SELECT 1
+             FROM upload_invitations
+             WHERE id = ?1
+               AND status = 'active'
+               AND expires_at > ?2
+           )`,
+      )
+      .bind(invitationId, now),
+    database
+      .prepare(
         `UPDATE upload_sessions
          SET revoked_at = COALESCE(revoked_at, ?1)
          WHERE invitation_id = ?2 AND revoked_at IS NULL`,
@@ -201,6 +216,30 @@ export async function reissueInvitationToken(
   ]);
 
   if (updated?.meta.changes !== 1) {
+    return null;
+  }
+  return getInvitationSummary(database, invitationId);
+}
+
+export async function issueAdditionalInvitationToken(
+  database: D1Database,
+  invitationId: string,
+  tokenHash: string,
+  now: number,
+): Promise<InvitationSummary | null> {
+  const inserted = await database
+    .prepare(
+      `INSERT INTO upload_invitation_tokens (token_hash, invitation_id, created_at)
+       SELECT ?1, id, ?3
+       FROM upload_invitations
+       WHERE id = ?2
+         AND status = 'active'
+         AND expires_at > ?3`,
+    )
+    .bind(tokenHash, invitationId, now)
+    .run();
+
+  if (inserted.meta.changes !== 1) {
     return null;
   }
   return getInvitationSummary(database, invitationId);

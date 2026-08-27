@@ -2,7 +2,7 @@
 
 > 狀態：現行架構  
 > 最後更新：2026-08-27  
-> 適用版本：D1 migrations `0001`–`0007`
+> 適用版本：D1 migrations `0001`–`0008`
 
 ## 1. 系統目標
 
@@ -87,10 +87,10 @@ test/                   # Workers runtime、D1 與 R2 整合測試
 ### 6.1 邀請建立與交換
 
 1. 管理員使用 admin session 建立具 label、期限、權限與額度的邀請。
-2. Worker 只保存 invitation token hash；原始 token 放在邀請 URL fragment。
+2. Worker 只保存 invitation token hash；原始 token 放在邀請 URL fragment。同一邀請可新增多條有效連結，並共用期限、權限與額度。
 3. 瀏覽器讀取 fragment，連同 Turnstile token 與選用 access code 呼叫 `/api/invitations/exchange`。
 4. Worker 驗證後建立短期 HttpOnly invitation session，回傳權限與剩餘額度。
-5. 重新簽發或撤銷邀請時，相關既有 session 一併失效。
+5. 複製邀請會新增等效連結，原連結與既有 session 保持有效；重新簽發或撤銷時，所有舊連結與相關 session 一併失效。
 
 ### 6.2 上傳
 
@@ -149,16 +149,17 @@ R2 Lifecycle Rule 對 `temp-storage/objects/` 提供 90 天漏刪保險，但不
 
 ## 7. D1 資料模型
 
-| Table                 | 角色                                                                     |
-| --------------------- | ------------------------------------------------------------------------ |
-| `files`               | 檔案 metadata、狀態、MIME、期限、R2 key 與 invitation 關聯               |
-| `upload_reservations` | 上傳前的 byte reservation 與釋放狀態                                     |
-| `storage_usage`       | 全站 used/reserved/max bytes 單列帳本                                    |
-| `rate_limit_events`   | IP hash 與 invitation 維度的 reservation／流量事件                       |
-| `upload_invitations`  | token hash、label、期限、檔案／容量額度、`unlimited_files`、`can_upload` |
-| `upload_sessions`     | Invitation 的短期 HttpOnly session hash 與撤銷狀態                       |
-| `admin_sessions`      | 管理員短期 HttpOnly session hash 與撤銷狀態                              |
-| `cleanup_runs`        | 排程清理的開始、結果與錯誤統計                                           |
+| Table                      | 角色                                                                          |
+| -------------------------- | ----------------------------------------------------------------------------- |
+| `files`                    | 檔案 metadata、狀態、MIME、期限、R2 key 與 invitation 關聯                    |
+| `upload_reservations`      | 上傳前的 byte reservation 與釋放狀態                                          |
+| `storage_usage`            | 全站 used/reserved/max bytes 單列帳本                                         |
+| `rate_limit_events`        | IP hash 與 invitation 維度的 reservation／流量事件                            |
+| `upload_invitations`       | 主要 token hash、label、期限、檔案／容量額度、`unlimited_files`、`can_upload` |
+| `upload_invitation_tokens` | 同一邀請額外簽發的 token hash；不保存明文 token                               |
+| `upload_sessions`          | Invitation 的短期 HttpOnly session hash 與撤銷狀態                            |
+| `admin_sessions`           | 管理員短期 HttpOnly session hash 與撤銷狀態                                   |
+| `cleanup_runs`             | 排程清理的開始、結果與錯誤統計                                                |
 
 Schema 只透過 `migrations/` 依序演進。不得修改已在正式環境套用的舊 migration；新增下一個編號並讓程式在 migration 前後的部署順序可預期。
 
@@ -188,6 +189,7 @@ Schema 只透過 `migrations/` 依序演進。不得修改已在正式環境套�
 - `GET /api/admin/status`
 - `GET /api/admin/invitations`
 - `POST /api/admin/invitations`
+- `POST /api/admin/invitations/:invitationId/copy`
 - `POST /api/admin/invitations/:invitationId/reissue`
 - `DELETE /api/admin/invitations/:invitationId`
 - `GET /api/admin/files`

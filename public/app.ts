@@ -1461,6 +1461,30 @@ function renderInvitationGroup(
         const actions = document.createElement("div");
         actions.className = "invitation-card__actions";
 
+        const copy = document.createElement("button");
+        copy.type = "button";
+        copy.className = "secondary-button";
+        copy.textContent = "複製邀請連結";
+        copy.title = "建立同一邀請的新連結；原有連結與已登入裝置仍有效";
+        copy.addEventListener("click", () => {
+          copy.disabled = true;
+          copy.textContent = "複製中…";
+          void copyAdminInvitation(invitation.id)
+            .then(async (copied) => {
+              presentInvitationLink(copied);
+              await copyText(copied.inviteUrl);
+              createdInvite.scrollIntoView({ behavior: "smooth", block: "nearest" });
+              showToast("邀請連結已複製；原有連結與已登入裝置仍有效");
+            })
+            .catch((error: unknown) => {
+              showToast(error instanceof Error ? error.message : "無法複製邀請連結。", "error");
+            })
+            .finally(() => {
+              copy.disabled = false;
+              copy.textContent = "複製邀請連結";
+            });
+        });
+
         const reissue = document.createElement("button");
         reissue.type = "button";
         reissue.className = "secondary-button";
@@ -1513,7 +1537,7 @@ function renderInvitationGroup(
               revoke.disabled = false;
             });
         });
-        actions.append(reissue, revoke);
+        actions.append(copy, reissue, revoke);
         card.append(actions);
       }
       return card;
@@ -1635,6 +1659,16 @@ async function reissueAdminInvitation(invitationId: string): Promise<CreatedInvi
     `/api/admin/invitations/${encodeURIComponent(invitationId)}/reissue`,
     { method: "POST" },
   );
+  if (!response.ok) {
+    throw new Error(await responseError(response));
+  }
+  return parseCreatedInvitation(await response.json());
+}
+
+async function copyAdminInvitation(invitationId: string): Promise<CreatedInvitation> {
+  const response = await fetch(`/api/admin/invitations/${encodeURIComponent(invitationId)}/copy`, {
+    method: "POST",
+  });
   if (!response.ok) {
     throw new Error(await responseError(response));
   }
