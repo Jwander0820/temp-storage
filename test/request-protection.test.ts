@@ -126,6 +126,59 @@ describe("public request protections", () => {
       expect(response.headers.get("Retry-After")).toBe("60");
     }
   });
+
+  it("rate limits reservation and upload mutations before session or storage work", async () => {
+    vi.spyOn(env.UPLOAD_MUTATION_RATE_LIMITER, "limit").mockResolvedValue({ success: false });
+    const requests = [
+      new Request("https://upload.example.test/api/uploads/reserve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      }),
+      new Request(`https://upload.example.test/api/uploads/${"A".repeat(22)}`, {
+        method: "PUT",
+        body: new Uint8Array([1]),
+      }),
+    ];
+
+    for (const request of requests) {
+      const response = await exports.default.fetch(request);
+      expect(response.status, `${request.method} ${new URL(request.url).pathname}`).toBe(429);
+      expect(response.headers.get("Retry-After")).toBe("60");
+    }
+  });
+
+  it("rejects malformed capability tokens before protected lookups", async () => {
+    const fileId = "A".repeat(22);
+    const invalidDelete = await exports.default.fetch(
+      new Request(`https://upload.example.test/api/files/${fileId}`, {
+        method: "DELETE",
+        headers: { Authorization: `DeleteToken ${"A".repeat(44)}` },
+      }),
+    );
+    expect(invalidDelete.status).toBe(403);
+    await expect(invalidDelete.json()).resolves.toMatchObject({
+      error: { code: "INVALID_DELETE_TOKEN" },
+    });
+
+    const invalidInvitationSession = await exports.default.fetch(
+      new Request("https://upload.example.test/api/storage", {
+        headers: { Cookie: `jwander_upload_session=${"A".repeat(44)}` },
+      }),
+    );
+    expect(invalidInvitationSession.status).toBe(401);
+  });
+
+  it("emits the tightened CSP candidate in report-only mode", async () => {
+    const response = await exports.default.fetch(
+      new Request("https://upload.example.test/api/health"),
+    );
+    const policy = response.headers.get("Content-Security-Policy-Report-Only");
+    expect(policy).toContain("frame-ancestors 'none'");
+    expect(policy).toContain("img-src 'self' data: https://cdn.example.test");
+    expect(policy).toContain("media-src 'self' blob: https://cdn.example.test");
+    expect(policy).not.toMatch(/img-src[^;]*\shttps:(?:\s|;)/u);
+  });
 });
 
 describe("same-origin session mutation protection", () => {

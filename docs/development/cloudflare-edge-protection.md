@@ -22,6 +22,8 @@ host 與 path prefix，因為 `cdn` bucket 也可能保存本專案以外的物�
 - [ ] Free Rate Limiting Rule 已依正常流量校正後啟用。
 - [ ] US$1、US$5 Budget Alerts 已建立；若帳號不提供此功能，已記錄原因。
 - [ ] `r2.dev` 已確認停用。
+- [ ] `upload.jwander.net` 與 `cdn.jwander.net` 的 HTTP 都會轉址到 HTTPS。
+- [ ] HSTS 已在不啟用 `includeSubDomains`／preload 的保守設定下驗證。
 - [ ] 設定後 24 小時與一週的觀察已完成。
 
 ## 上線前確認
@@ -35,6 +37,9 @@ host 與 path prefix，因為 `cdn` bucket 也可能保存本專案以外的物�
 R2 Custom Domain 才能使用 WAF 與 Cloudflare Cache；`r2.dev` 不提供同等控制。參考
 [R2 public buckets](https://developers.cloudflare.com/r2/buckets/public-buckets/) 與
 [R2 與 Cache 的互動](https://developers.cloudflare.com/cache/interaction-cloudflare-products/r2/)。
+
+R2 公開網域目前不提供 bucket 根目錄 listing，因此沒有額外的「listing 開關」需要啟用或關閉；仍需
+確認應用程式沒有自行暴露 `R2.list()` 結果，並保持 S3 API credentials 最小權限。
 
 ## 1. 建立 WAF contract rule
 
@@ -157,7 +162,41 @@ Rate Limiting expression 無法限制 Host 是 Free plan 的能力限制；本�
 Cloudflare 自動 DDoS 防護不能取代 rate limit：格式正常且成功讀取大量公開 object 的濫用，未必會被辨識
 為 DDoS。Free plan 規則數與能力參考 [WAF overview](https://developers.cloudflare.com/waf/)。
 
-## 6. 建立低額 Budget Alerts
+## 6. 強制 HTTPS 並保守啟用 HSTS
+
+先確認 `https://upload.jwander.net` 與 `https://cdn.jwander.net` 的憑證、預覽、下載及 Range request 都
+正常，再處理 HTTP 轉址：
+
+- 若 `jwander.net` zone 的所有 host 都支援 HTTPS，可在 **SSL/TLS → Edge Certificates** 開啟
+  **Always Use HTTPS**。
+- 若仍有其他 HTTP-only host，不要開啟 zone-wide 選項；改用 Redirect Rule 只涵蓋
+  `upload.jwander.net` 與 `cdn.jwander.net`。
+
+HTTP 轉址穩定後才啟用 HSTS。Cloudflare Dashboard 的 HSTS 設定是 zone 層級，會在該 zone 的 HTTPS
+回應送出 header；只有所有 `jwander.net` host 都已完成 HTTPS 盤點，且不會暫停 Cloudflare 或改回 DNS
+only 時，才使用 **SSL/TLS → Edge Certificates → HSTS**。初始建議：
+
+- Max Age：1 個月。
+- `includeSubDomains`：Off。
+- Preload：Off。
+
+若只準備好本服務的兩個 hostname，改在 **Rules → Transform Rules → Modify Response Header** 建立一條
+hostname-scoped 規則：
+
+```text
+http.host in {"upload.jwander.net" "cdn.jwander.net"}
+```
+
+使用 **Set static** 設定 `Strict-Transport-Security: max-age=2592000`。這個值不含
+`includeSubDomains`／preload，不會把未盤點的其他 host 納入。至少觀察一個 Max Age 週期，並確認不會
+停用 Cloudflare、HTTPS、R2 Custom Domain 或有效憑證，再評估延長 Max Age。未完整盤點所有子網域前，
+不啟用 `includeSubDomains` 或 preload，避免其他服務被瀏覽器長期鎖死。
+
+參考 [Always Use HTTPS](https://developers.cloudflare.com/ssl/edge-certificates/additional-options/always-use-https/)
+、[HSTS](https://developers.cloudflare.com/ssl/edge-certificates/additional-options/http-strict-transport-security/)
+與 [Response Header Transform Rules](https://developers.cloudflare.com/rules/transform/response-header-modification/)。
+
+## 7. 建立低額 Budget Alerts
 
 前往 account-level **Manage Account → Billing → Billable Usage → Create budget alert**，至少建立：
 
@@ -173,7 +212,7 @@ Cloudflare 自動 DDoS 防護不能取代 rate limit：格式正常且成功讀�
 設定方式參考 [Budget alerts](https://developers.cloudflare.com/billing/manage/budget-alerts/) 與
 [Billing changelog](https://developers.cloudflare.com/changelog/product/billing/)。
 
-## 7. 驗證
+## 8. 驗證
 
 將 `$testUrl` 換成一個 inline preview 的完整 CDN URL，在 PowerShell 執行：
 
@@ -184,6 +223,9 @@ curl.exe -I $testUrl
 curl.exe -I "$testUrl?cache-bust=1"
 curl.exe -I -X POST $testUrl
 curl.exe -I -H "Range: bytes=0-1023" $testUrl
+curl.exe -I http://upload.jwander.net/api/health
+curl.exe -I https://upload.jwander.net/api/health
+curl.exe -I http://cdn.jwander.net/temp-storage/objects/<test-object-key>
 ```
 
 預期結果：
@@ -195,11 +237,13 @@ curl.exe -I -H "Range: bytes=0-1023" $testUrl
 | POST                     | Cloudflare edge 回 `403`                                  |
 | Range                    | 不被 WAF 阻擋；依物件與 cache 狀態回 `206` 或正常可讀回應 |
 | `download_only`          | 不應出現可重複使用的 public cache `HIT`                   |
+| HTTP upload/CDN URL      | 轉址到相同 host 的 HTTPS URL                              |
+| HTTPS upload/CDN URL     | HSTS 啟用後包含預期的 `Strict-Transport-Security` header  |
 
 另外在 Dashboard 檢查 Security Events、Cache Analytics 與 R2 Class B 指標。設定後 24 小時及一週各檢查一次，
 確認沒有合法流量誤判，也沒有大量 query 或 Range cache miss。
 
-## 8. 誤判與緊急應變
+## 9. 誤判與緊急應變
 
 ### 合法流量被擋
 

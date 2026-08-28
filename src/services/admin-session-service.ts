@@ -8,7 +8,7 @@ import {
   revokeAdminSession,
   revokeAllAdminSessions as revokeAllAdminSessionsInRepository,
 } from "../repositories/admin-session-repository";
-import { hashPepperedValue, randomToken } from "../utils/hash";
+import { hashPepperedValue, isRandomToken32, randomToken } from "../utils/hash";
 
 export const ADMIN_SESSION_COOKIE = "jwander_admin_session";
 
@@ -38,7 +38,7 @@ export async function issueAdminSession(context: Context<AppEnv>): Promise<numbe
 
 export async function resolveAdminSession(context: Context<AppEnv>): Promise<boolean> {
   const token = getCookie(context, ADMIN_SESSION_COOKIE);
-  if (token === undefined || !/^[A-Za-z0-9_-]{43}$/u.test(token)) {
+  if (token === undefined || !isRandomToken32(token)) {
     return false;
   }
   const tokenHash = await adminSessionTokenHash(context.env.DELETE_TOKEN_PEPPER, token);
@@ -49,7 +49,7 @@ export async function resolveAdminSession(context: Context<AppEnv>): Promise<boo
 
 export async function revokeCurrentAdminSession(context: Context<AppEnv>): Promise<void> {
   const token = getCookie(context, ADMIN_SESSION_COOKIE);
-  if (token !== undefined) {
+  if (token !== undefined && isRandomToken32(token)) {
     const tokenHash = await adminSessionTokenHash(context.env.DELETE_TOKEN_PEPPER, token);
     await revokeAdminSession(context.env.DB, tokenHash, Math.floor(Date.now() / 1000));
   }

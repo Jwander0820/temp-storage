@@ -1,7 +1,7 @@
 import type { Bindings } from "../bindings";
 import { DomainError } from "../domain/errors";
 import { claimDeletion, finalizeDeletion, getFile } from "../repositories/file-repository";
-import { verifyPepperedValue } from "../utils/hash";
+import { isRandomToken32, verifyPepperedValue } from "../utils/hash";
 
 export async function deleteFileWithToken(
   env: Bindings,
@@ -9,6 +9,9 @@ export async function deleteFileWithToken(
   token: string,
   now: number,
 ): Promise<void> {
+  if (!isRandomToken32(token)) {
+    throw new DomainError("INVALID_DELETE_TOKEN", 403, "刪除憑證不正確。");
+  }
   const existing = await getFile(env.DB, fileId);
   if (existing === null) {
     throw new DomainError("FILE_NOT_FOUND", 404, "找不到檔案。");

@@ -276,6 +276,58 @@ export async function purgeExpiredSessions(database: D1Database, now: number): P
   return typeof result.meta.changes === "number" ? result.meta.changes : 0;
 }
 
+export async function purgeRetiredInvitationHistory(
+  database: D1Database,
+  cutoff: number,
+  limit: number,
+): Promise<number> {
+  const targetInvitationsSql = `
+    SELECT invitation.id
+    FROM upload_invitations invitation
+    WHERE (
+        (invitation.status = 'revoked' AND invitation.revoked_at <= ?1)
+        OR invitation.expires_at <= ?1
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM files WHERE files.invitation_id = invitation.id
+      )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM upload_reservations
+        WHERE upload_reservations.invitation_id = invitation.id
+      )
+    ORDER BY
+      CASE
+        WHEN invitation.status = 'revoked' THEN invitation.revoked_at
+        ELSE invitation.expires_at
+      END,
+      invitation.id
+    LIMIT ?2
+  `;
+  const results = await database.batch([
+    database
+      .prepare(`DELETE FROM upload_sessions WHERE invitation_id IN (${targetInvitationsSql})`)
+      .bind(cutoff, limit),
+    database
+      .prepare(
+        `DELETE FROM upload_invitation_tokens
+         WHERE invitation_id IN (${targetInvitationsSql})`,
+      )
+      .bind(cutoff, limit),
+    database
+      .prepare(`DELETE FROM rate_limit_events WHERE invitation_id IN (${targetInvitationsSql})`)
+      .bind(cutoff, limit),
+    database
+      .prepare(`DELETE FROM upload_invitations WHERE id IN (${targetInvitationsSql})`)
+      .bind(cutoff, limit),
+  ]);
+  const deletedInvitations = results[3];
+  if (deletedInvitations === undefined) {
+    throw new DomainError("INTERNAL_ERROR", 500, "Invitation history purge was incomplete.");
+  }
+  return typeof deletedInvitations.meta.changes === "number" ? deletedInvitations.meta.changes : 0;
+}
+
 export function invitationStatus(
   invitation: UploadInvitation,
   now: number,

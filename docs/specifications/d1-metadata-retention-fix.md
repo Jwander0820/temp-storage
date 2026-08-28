@@ -91,16 +91,18 @@ ON files(status, deleted_at, id);
 
 ### 3. 保留與清理政策
 
-| 資料                     | 建議政策                                                        |
-| ------------------------ | --------------------------------------------------------------- |
-| R2 object                | 使用者刪除或到期時立即刪除；Lifecycle Rule 是漏刪保險           |
-| `files` deleted metadata | 維持現行七日 retention，之後由 cron 分批 purge                  |
-| `upload_reservations`    | 與對應的 deleted file metadata 同批刪除                         |
-| `cleanup_runs`           | 另訂固定天數或筆數上限；不納入本次 correctness 修正             |
-| `rate_limit_events`      | 另行設計，不可直接刪除仍被 invitation lifetime quota 使用的 row |
+| 資料                     | 建議政策                                                       |
+| ------------------------ | -------------------------------------------------------------- |
+| R2 object                | 使用者刪除或到期時立即刪除；Lifecycle Rule 是漏刪保險          |
+| `files` deleted metadata | 維持現行七日 retention，之後由 cron 分批 purge                 |
+| `upload_reservations`    | 與對應的 deleted file metadata 同批刪除                        |
+| failed/rejected metadata | quota 釋放後保留七日，再與 reservation 依 child-first 清除     |
+| `cleanup_runs`           | 後續獨立實作已設定 30 日 retention，由 cron 分批清除           |
+| `rate_limit_events`      | 有效邀請持續保留；退休邀請超過 90 日且無檔案關聯時才隨邀請清除 |
 
-`rate_limit_events` 目前同時是 quota 帳本，不能只因為資料變多就按日期清除，否則可能讓 invitation 重新取得
-已使用的檔案數或 byte 額度。這應作為後續獨立規格。
+`rate_limit_events` 同時是 quota 帳本，不能只因為資料變多就按日期清除，否則可能讓 invitation 重新取得
+已使用的檔案數或 byte 額度。後續獨立實作已由 migration `0010` 補齊查詢索引；程式只在 invitation
+撤銷或到期超過 90 日、且已無 `files`／`upload_reservations` 關聯時，以 child-first 順序清除相關資料。
 
 ## 自動測試涵蓋
 

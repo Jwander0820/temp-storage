@@ -1,9 +1,10 @@
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
+import type { Bindings } from "../src/bindings";
 import { reserveQuotaAndCreateRecords } from "../src/repositories/quota-repository";
 import { purgeDeletedMetadata } from "../src/repositories/file-repository";
 import { completeUpload } from "../src/repositories/upload-repository";
-import { runCleanup } from "../src/services/cleanup-service";
+import { reconcileStorage, runCleanup } from "../src/services/cleanup-service";
 import {
   createTestInvitation,
   resetState,
@@ -46,6 +47,47 @@ describe("cleanup", () => {
       "SELECT reserved_bytes FROM storage_usage WHERE id = 1",
     ).first<{ reserved_bytes: number }>();
     expect(usage?.reserved_bytes).toBe(0);
+  });
+
+  it("purges released failed upload metadata after its retention window", async () => {
+    const now = 1_800_000_000;
+    await reserveQuotaAndCreateRecords(
+      env.DB,
+      {
+        eventId: "old-failed-event",
+        reservationId: "old-failed-upload",
+        fileId: "old-failed-file",
+        objectKey: "temp-storage/objects/old-failed-file",
+        filename: "old-failed.bin",
+        extension: "bin",
+        declaredMime: "application/octet-stream",
+        sizeBytes: 1,
+        uploaderHash: "old-failed-uploader",
+        previousUploaderHash: "old-failed-previous",
+        invitationId: TEST_INVITATION_ID,
+        createdAt: now - 604_801,
+        reservationExpiresAt: now - 604_700,
+        fileExpiresAt: now + 1_000,
+      },
+      TEST_UPLOAD_RATE_LIMITS,
+    );
+
+    const result = await runCleanup(env, now);
+    expect(result.expiredReservations).toBe(1);
+    expect(result.purgedFailedUploads).toBe(1);
+    expect(
+      await env.DB.prepare("SELECT id FROM files WHERE id = 'old-failed-file'").first(),
+    ).toBeNull();
+    expect(
+      await env.DB.prepare(
+        "SELECT id FROM upload_reservations WHERE id = 'old-failed-upload'",
+      ).first(),
+    ).toBeNull();
+    expect(
+      await env.DB.prepare(
+        "SELECT id FROM rate_limit_events WHERE id = 'old-failed-event'",
+      ).first(),
+    ).not.toBeNull();
   });
 
   it("deletes expired active objects and updates used bytes once", async () => {
@@ -188,5 +230,182 @@ describe("cleanup", () => {
     expect(
       await env.DB.prepare("SELECT id FROM files WHERE id = 'retained-failed'").first(),
     ).not.toBeNull();
+  });
+
+  it("purges old cleanup runs and unreferenced retired invitation history", async () => {
+    const now = 1_800_000_000;
+    const retirementCutoff = now - 7_776_000;
+    await createTestInvitation({
+      id: "retired-invitation",
+      now: retirementCutoff - 200,
+      expiresAt: retirementCutoff - 100,
+    });
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO upload_invitation_tokens (token_hash, invitation_id, created_at)
+         VALUES (?1, 'retired-invitation', ?2)`,
+      ).bind("1".repeat(64), retirementCutoff - 150),
+      env.DB.prepare(
+        `INSERT INTO upload_sessions (
+           id, token_hash, invitation_id, created_at, expires_at
+         ) VALUES ('retired-session', ?1, 'retired-invitation', ?2, ?3)`,
+      ).bind("2".repeat(64), retirementCutoff - 150, retirementCutoff - 100),
+      env.DB.prepare(
+        `INSERT INTO rate_limit_events (
+           id, uploader_hash, size_bytes, created_at, invitation_id
+         ) VALUES ('retired-event', 'retired-uploader', 1, ?1, 'retired-invitation')`,
+      ).bind(retirementCutoff - 150),
+      env.DB.prepare(
+        `INSERT INTO cleanup_runs (id, started_at, finished_at, status)
+         VALUES ('old-run', ?1, ?1, 'completed')`,
+      ).bind(now - 2_592_001),
+      env.DB.prepare(
+        `INSERT INTO cleanup_runs (id, started_at, finished_at, status)
+         VALUES ('recent-run', ?1, ?1, 'completed')`,
+      ).bind(now - 2_592_000 + 1),
+    ]);
+
+    const result = await runCleanup(env, now);
+    expect(result.purgedCleanupRuns).toBe(1);
+    expect(result.purgedInvitationHistory).toBe(1);
+    expect(
+      await env.DB.prepare("SELECT id FROM cleanup_runs WHERE id = 'old-run'").first(),
+    ).toBeNull();
+    expect(
+      await env.DB.prepare("SELECT id FROM cleanup_runs WHERE id = 'recent-run'").first(),
+    ).not.toBeNull();
+    expect(
+      await env.DB.prepare(
+        "SELECT id FROM upload_invitations WHERE id = 'retired-invitation'",
+      ).first(),
+    ).toBeNull();
+    expect(
+      await env.DB.prepare("SELECT id FROM rate_limit_events WHERE id = 'retired-event'").first(),
+    ).toBeNull();
+  });
+
+  it("retains retired invitation quota history while file metadata still references it", async () => {
+    const now = 1_800_000_000;
+    const retirementCutoff = now - 7_776_000;
+    await createTestInvitation({
+      id: "referenced-retired-invitation",
+      now: retirementCutoff - 200,
+      expiresAt: retirementCutoff - 100,
+    });
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO files (
+           id, object_key, original_name, size_bytes, status,
+           created_at, expires_at, deleted_at, invitation_id
+         ) VALUES (
+           'retained-file',
+           'temp-storage/objects/retained-file',
+           'retained.bin',
+           1,
+           'deleted',
+           ?1,
+           ?2,
+           ?3,
+           'referenced-retired-invitation'
+         )`,
+      ).bind(retirementCutoff - 150, retirementCutoff - 100, now),
+      env.DB.prepare(
+        `INSERT INTO rate_limit_events (
+           id, uploader_hash, size_bytes, created_at, invitation_id
+         ) VALUES (
+           'retained-event',
+           'retained-uploader',
+           1,
+           ?1,
+           'referenced-retired-invitation'
+         )`,
+      ).bind(retirementCutoff - 150),
+    ]);
+
+    const result = await runCleanup(env, now);
+    expect(result.purgedInvitationHistory).toBe(0);
+    expect(
+      await env.DB.prepare(
+        "SELECT id FROM upload_invitations WHERE id = 'referenced-retired-invitation'",
+      ).first(),
+    ).not.toBeNull();
+    expect(
+      await env.DB.prepare("SELECT id FROM rate_limit_events WHERE id = 'retained-event'").first(),
+    ).not.toBeNull();
+  });
+
+  it("paginates through all D1 metadata and R2 objects during reconciliation", async () => {
+    const now = Math.floor(Date.now() / 1000) + 7_200;
+    const objectKeys = ["page-a", "page-b", "page-c"].map(
+      (suffix) => `temp-storage/objects/${suffix}`,
+    );
+    for (const [index, objectKey] of objectKeys.entries()) {
+      await env.FILES.put(objectKey, new Uint8Array([index + 1]));
+      await env.DB.prepare(
+        `INSERT INTO files (
+           id, object_key, original_name, detected_mime, size_bytes,
+           preview_policy, status, created_at, expires_at, delete_token_hash
+         ) VALUES (?1, ?2, ?3, 'application/octet-stream', 1,
+                   'download_only', 'active', ?4, ?5, ?6)`,
+      )
+        .bind(
+          `page-file-${index}`,
+          objectKey,
+          `page-${index}.bin`,
+          now - 100 + index,
+          now + 1_000,
+          String(index).repeat(64),
+        )
+        .run();
+    }
+    await env.DB.prepare("UPDATE storage_usage SET used_bytes = 4 WHERE id = 1").run();
+    await env.DB.prepare(
+      `INSERT INTO files (
+         id, object_key, original_name, detected_mime, size_bytes,
+         preview_policy, status, created_at, expires_at, delete_token_hash
+       ) VALUES (
+         'missing-file',
+         'temp-storage/objects/missing-file',
+         'missing.bin',
+         'application/octet-stream',
+         1,
+         'download_only',
+         'active',
+         ?1,
+         ?2,
+         ?3
+       )`,
+    )
+      .bind(now - 97, now + 1_000, "f".repeat(64))
+      .run();
+    const orphanKeys = ["orphan-a", "orphan-b", "orphan-c"].map(
+      (suffix) => `temp-storage/objects/${suffix}`,
+    );
+    for (const [index, objectKey] of orphanKeys.entries()) {
+      await env.FILES.put(objectKey, new Uint8Array([index + 1]));
+    }
+
+    const paginatedEnv = new Proxy(env, {
+      get(target, property, receiver) {
+        if (property === "RECONCILE_METADATA_LIMIT" || property === "RECONCILE_OBJECT_LIMIT") {
+          return "2";
+        }
+        return Reflect.get(target, property, receiver) as unknown;
+      },
+    }) as unknown as Bindings;
+    const result = await reconcileStorage(paginatedEnv, now);
+
+    expect(result).toEqual({
+      missingObjects: 1,
+      orphanObjects: 3,
+      scannedFiles: 4,
+      scannedObjects: 6,
+    });
+    expect(
+      await env.DB.prepare("SELECT status FROM files WHERE id = 'missing-file'").first(),
+    ).toMatchObject({ status: "deleted" });
+    for (const objectKey of orphanKeys) {
+      expect(await env.FILES.head(objectKey)).toBeNull();
+    }
   });
 });

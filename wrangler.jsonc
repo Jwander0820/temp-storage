@@ -52,6 +52,14 @@
         "period": 60,
       },
     },
+    {
+      "name": "UPLOAD_MUTATION_RATE_LIMITER",
+      "namespace_id": "1005",
+      "simple": {
+        "limit": 120,
+        "period": 60,
+      },
+    },
   ],
   "r2_buckets": [
     {
@@ -95,6 +103,9 @@
     "PUBLIC_CONFIG_CACHE_SECONDS": "60",
     "CLEANUP_BATCH_LIMIT": "100",
     "DELETED_METADATA_RETENTION_SECONDS": "604800",
+    "FAILED_UPLOAD_METADATA_RETENTION_SECONDS": "604800",
+    "CLEANUP_RUN_RETENTION_SECONDS": "2592000",
+    "INVITATION_HISTORY_RETENTION_SECONDS": "7776000",
     "RECONCILE_METADATA_LIMIT": "500",
     "RECONCILE_OBJECT_LIMIT": "1000",
     "RECONCILE_ORPHAN_GRACE_SECONDS": "3600",

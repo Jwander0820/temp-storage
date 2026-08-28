@@ -98,7 +98,7 @@ Codex 的實際尋找順序與 scope 規則，以 [OpenAI 官方 AGENTS.md 文�
 
 - [`local-testing.md`](./development/local-testing.md)：完整本機手動測試流程。
 - [`deployment.md`](./development/deployment.md)：Cloudflare 資源、Workers Builds、secrets 與部署檢查。
-- [`cloudflare-edge-protection.md`](./development/cloudflare-edge-protection.md)：`cdn.jwander.net` 的 WAF、Cache、Rate Limiting、Budget Alert 與應變操作。
+- [`cloudflare-edge-protection.md`](./development/cloudflare-edge-protection.md)：`cdn.jwander.net` 的 WAF、Cache、Rate Limiting、HTTPS／HSTS、Budget Alert 與應變操作。
 - [`cloudflare-cost-incident-response.md`](./development/cloudflare-cost-incident-response.md)：Workers、D1 或 R2 用量／帳單異常時的止血、停用與恢復 runbook。
 - [`invitation-management.md`](./development/invitation-management.md)：管理頁、邀請 URL 與撤銷方式。
 - [`commit-conventions.md`](./development/commit-conventions.md)：Conventional Commits 與拆分原則。

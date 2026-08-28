@@ -10,7 +10,7 @@ import {
   getSessionByTokenHash,
   revokeSessionByTokenHash,
 } from "../repositories/invitation-repository";
-import { hashPepperedValue, randomToken } from "../utils/hash";
+import { hashPepperedValue, isRandomToken32, randomToken } from "../utils/hash";
 
 export const INVITATION_SESSION_COOKIE = "jwander_upload_session";
 function invitationTokenHash(pepper: string, token: string): Promise<string> {
@@ -22,7 +22,7 @@ function sessionTokenHash(pepper: string, token: string): Promise<string> {
 }
 
 function validateTokenShape(token: string): void {
-  if (!/^[A-Za-z0-9_-]{43}$/u.test(token)) {
+  if (!isRandomToken32(token)) {
     throw new DomainError("INVITATION_INVALID", 403, "邀請連結無效或已過期。");
   }
 }
@@ -73,7 +73,7 @@ export async function resolveInvitationSession(
   context: Context<AppEnv>,
 ): Promise<InvitationSession | null> {
   const token = getCookie(context, INVITATION_SESSION_COOKIE);
-  if (token === undefined) {
+  if (token === undefined || !isRandomToken32(token)) {
     return null;
   }
   const tokenHash = await sessionTokenHash(context.env.DELETE_TOKEN_PEPPER, token);
@@ -82,7 +82,7 @@ export async function resolveInvitationSession(
 
 export async function revokeCurrentInvitationSession(context: Context<AppEnv>): Promise<void> {
   const token = getCookie(context, INVITATION_SESSION_COOKIE);
-  if (token !== undefined) {
+  if (token !== undefined && isRandomToken32(token)) {
     const tokenHash = await sessionTokenHash(context.env.DELETE_TOKEN_PEPPER, token);
     await revokeSessionByTokenHash(context.env.DB, tokenHash, Math.floor(Date.now() / 1000));
   }

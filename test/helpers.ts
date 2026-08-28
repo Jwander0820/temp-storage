@@ -64,7 +64,7 @@ export async function createTestInvitation(options?: {
   const now = options?.now ?? Math.floor(Date.now() / 1000);
   await createInvitation(env.DB, {
     id,
-    tokenHash: "0".repeat(64),
+    tokenHash: await hashPepperedValue("test-invitation-token", id),
     label: "測試邀請",
     maxFiles: options?.maxFiles ?? 100,
     unlimitedFiles: false,

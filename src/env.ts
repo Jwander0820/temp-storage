@@ -27,6 +27,9 @@ export interface AppConfig {
   readonly publicConfigCacheSeconds: number;
   readonly cleanupBatchLimit: number;
   readonly deletedMetadataRetentionSeconds: number;
+  readonly failedUploadMetadataRetentionSeconds: number;
+  readonly cleanupRunRetentionSeconds: number;
+  readonly invitationHistoryRetentionSeconds: number;
   readonly reconcileMetadataLimit: number;
   readonly reconcileObjectLimit: number;
   readonly reconcileOrphanGraceSeconds: number;
@@ -163,6 +166,18 @@ export function getConfig(env: Env): AppConfig {
     deletedMetadataRetentionSeconds: parseNonNegativeInteger(
       env.DELETED_METADATA_RETENTION_SECONDS,
       "DELETED_METADATA_RETENTION_SECONDS",
+    ),
+    failedUploadMetadataRetentionSeconds: parseNonNegativeInteger(
+      env.FAILED_UPLOAD_METADATA_RETENTION_SECONDS,
+      "FAILED_UPLOAD_METADATA_RETENTION_SECONDS",
+    ),
+    cleanupRunRetentionSeconds: parsePositiveInteger(
+      env.CLEANUP_RUN_RETENTION_SECONDS,
+      "CLEANUP_RUN_RETENTION_SECONDS",
+    ),
+    invitationHistoryRetentionSeconds: parsePositiveInteger(
+      env.INVITATION_HISTORY_RETENTION_SECONDS,
+      "INVITATION_HISTORY_RETENTION_SECONDS",
     ),
     reconcileMetadataLimit: parsePositiveInteger(
       env.RECONCILE_METADATA_LIMIT,

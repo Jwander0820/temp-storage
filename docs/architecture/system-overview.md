@@ -2,7 +2,7 @@
 
 > 狀態：現行架構  
 > 最後更新：2026-08-28
-> 適用版本：D1 migrations `0001`–`0009`
+> 適用版本：D1 migrations `0001`–`0010`
 
 ## 1. 系統目標
 
@@ -113,11 +113,13 @@ Cloudflare Access（正式環境）
 
 ```text
 POST /api/uploads/reserve
+  → UPLOAD_MUTATION_RATE_LIMITER（每 IP 每分鐘 120 次）
   → 驗證 invitation session 與 can_upload
   → 檢查全站、邀請、IP 與時間窗配額
   → D1 transaction 建立 file + reservation 並預留 bytes
 
 PUT /api/uploads/:uploadId
+  → UPLOAD_MUTATION_RATE_LIMITER（與 reserve 共用每 IP bucket）
   → 驗證 session、invitation ownership、Content-Length 與 reservation
   → 讀取內容前綴並分類檔案
   → blocked: 取消 reservation
@@ -157,12 +159,16 @@ Worker 提供的公開單檔 metadata、DeleteToken、預覽與下載會在 D1�
 - 刪除到期檔案。
 - 清除逾期 invitation/admin session。
 - 移除超過保留期的 deleted metadata。
+- 移除建立超過 7 日、且 quota 已釋放的 failed／rejected 上傳 metadata。
+- 移除超過 30 日的已完成 cleanup 執行紀錄。
+- 移除超過 90 日、已無檔案或 reservation 關聯的撤銷／到期邀請及其 token、session 與額度事件。
 - 寫入 `cleanup_runs` 並輸出結構化事件 log。
 
 每日 03:00 UTC 另外執行 reconciliation：
 
 - D1 顯示 active 但 R2 遺失的檔案標為 deleted。
 - R2 prefix 中沒有 D1 metadata 且超過安全等待時間的 orphan object 會被刪除。
+- D1 使用 `created_at + id` keyset cursor，R2 使用 list cursor，直到掃描完所有分頁。
 
 R2 Lifecycle Rule 對 `temp-storage/objects/` 提供 90 天漏刪保險，但不取代 Worker cleanup，也不更新 D1 帳本。
 
@@ -222,7 +228,7 @@ Schema 只透過 `migrations/` 依序演進。不得修改已在正式環境套�
 
 ## 9. 設定與秘密
 
-非秘密設定集中在 `wrangler.jsonc` 的 `vars`，啟動時由 `src/env.ts` 驗證相依關係。Cloudflare bindings 包含 `ASSETS`、`DB`、`FILES`、`FILE_BROWSER_RATE_LIMITER` 與獨立的 `ADMIN_LOGIN_RATE_LIMITER`。
+非秘密設定集中在 `wrangler.jsonc` 的 `vars`，啟動時由 `src/env.ts` 驗證相依關係。Cloudflare bindings 包含 `ASSETS`、`DB`、`FILES`，以及檔案瀏覽、管理登入、邀請交換、公開檔案與上傳 mutation 的獨立 Rate Limiting bindings。
 
 必要秘密：
 

@@ -1,4 +1,5 @@
 const textEncoder = new TextEncoder();
+const RANDOM_TOKEN_32_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
 
 function bytesToBase64Url(bytes: Uint8Array): string {
   let binary = "";
@@ -36,6 +37,10 @@ export function isFileId(value: string): boolean {
 
 export function createDeleteToken(): string {
   return randomToken(32);
+}
+
+export function isRandomToken32(value: string): boolean {
+  return RANDOM_TOKEN_32_PATTERN.test(value);
 }
 
 export async function sha256Hex(value: string | Uint8Array): Promise<string> {

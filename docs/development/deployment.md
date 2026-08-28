@@ -16,8 +16,8 @@
 | R2                | `cdn` bucket，僅使用 `temp-storage/objects/` prefix |
 | R2 Custom Domain  | `https://cdn.jwander.net`                           |
 | D1                | `jwander-temp-storage-db`                           |
-| Migration files   | `0001`–`0009`                                       |
-| 正式 migration    | `0009` 尚待正式套用與排程驗收                       |
+| Migration files   | `0001`–`0010`                                       |
+| 正式 migration    | `0009`–`0010` 尚待正式套用與排程驗收                |
 | Scheduled trigger | `0 * * * *`                                         |
 | Cloudflare Access | Admin paths 已設定，仍需完成部署後驗證              |
 | CDN 邊緣防護      | 文件已完成，Dashboard 規則尚待設定與驗證            |
@@ -58,6 +58,7 @@ Workers Builds 使用的 API token 必須具備 Workers Scripts、D1、R2 與 Wo
 - `ADMIN_LOGIN_RATE_LIMITER`：`POST /api/admin/session` 的獨立 IP 級限流，預設每分鐘 5 次；不得與檔案瀏覽 binding 共用 namespace。
 - `INVITATION_EXCHANGE_RATE_LIMITER`：邀請交換的獨立 IP 級限流，預設每分鐘 20 次，且在 JSON 與 Turnstile 前執行。
 - `PUBLIC_FILE_RATE_LIMITER`：Worker 公開單檔 metadata、刪除、預覽與下載的 IP 級限流，預設每分鐘 300 次。
+- `UPLOAD_MUTATION_RATE_LIMITER`：reserve 與 raw upload PUT 共用的 IP 級限流，預設每分鐘 120 次，且在 session、D1 與 R2 前執行。
 
 在其他 Cloudflare 帳號重建時，必須更新 D1 `database_id`、Turnstile site key，並確認所有 Rate Limiting `namespace_id` 彼此不同，也沒有和該帳號其他 binding 共用。
 
@@ -147,6 +148,7 @@ pnpm run deploy:cloudflare
 - D1 UUID、Turnstile site key 與所有 bindings 正確。
 - Runtime secrets 已設定。
 - `ADMIN_LOGIN_RATE_LIMITER` binding 已部署，且 namespace 未與其他 limiter 共用。
+- `UPLOAD_MUTATION_RATE_LIMITER` binding 已部署為 namespace `1005`，且 reserve／PUT 的正常流量不會誤觸 429。
 - 新 migration 已完成驗證並可安全依序套用。
 - `cdn.jwander.net` 仍由 R2 Custom Domain 提供，`r2.dev` 保持關閉。
 - R2 Lifecycle Rule 只涵蓋 `temp-storage/objects/`。
@@ -173,6 +175,17 @@ Health 預期回傳：
 - `/admin` 先通過 Access，再顯示管理 token gate。
 - 沒有 Access 時 `/api/admin/status` 在 Worker 前被阻擋。
 - 正確 `ADMIN_TOKEN` 直接放在其他 Admin API 的 Bearer header 仍回覆 401。
+
+部署後也要在瀏覽器 DevTools 確認首頁、邀請交換、Turnstile、上傳、公開圖片、影音預覽與管理頁沒有
+`Content-Security-Policy-Report-Only` violation。候選 CSP 至少穩定觀察一週後，才評估改成強制 header。
+
+## HTTPS 與 HSTS（手動設定）
+
+Cloudflare Edge 設定不由 Worker deploy 取代。確認 `upload.jwander.net` 與 `cdn.jwander.net` 全程支援
+HTTPS 後，依 [`cloudflare-edge-protection.md`](./cloudflare-edge-protection.md) 開啟 HTTP → HTTPS 轉址。
+HSTS 初期使用一個月 Max Age，並保持 `includeSubDomains` 與 preload 關閉。完成所有 `jwander.net`
+hostname 的 HTTPS 盤點前，不使用 zone-wide HSTS；改用只匹配 `upload.jwander.net` 與
+`cdn.jwander.net` 的 Response Header Transform Rule。
 
 ## ADMIN_TOKEN 疑似外洩
 

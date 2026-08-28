@@ -25,6 +25,10 @@
 | Admin 登入限流     |   每 IP 每分鐘 5 次 |
 | 邀請交換限流       |  每 IP 每分鐘 20 次 |
 | 公開單檔限流       | 每 IP 每分鐘 300 次 |
+| 上傳 mutation 限流 | 每 IP 每分鐘 120 次 |
+| Cleanup 紀錄保留   |               30 天 |
+| 邀請歷史保留       |               90 天 |
+| 失敗上傳紀錄保留   |                7 天 |
 
 ## 預設值的設計依據
 
@@ -82,7 +86,7 @@
 | Session        | `UPLOAD_SESSION_TTL_SECONDS`, `ADMIN_SESSION_TTL_SECONDS`                                                                                                                            |
 | 前端批次       | `CLIENT_MAX_FILES_PER_BATCH`, `CLIENT_MAX_PARALLEL_UPLOADS`                                                                                                                          |
 | Cache          | `MEDIA_PREVIEW_CACHE_SECONDS`, `PUBLIC_CONFIG_CACHE_SECONDS`                                                                                                                         |
-| Cleanup        | `CLEANUP_BATCH_LIMIT`, `DELETED_METADATA_RETENTION_SECONDS`                                                                                                                          |
+| Cleanup        | `CLEANUP_BATCH_LIMIT`, `DELETED_METADATA_RETENTION_SECONDS`, `FAILED_UPLOAD_METADATA_RETENTION_SECONDS`, `CLEANUP_RUN_RETENTION_SECONDS`, `INVITATION_HISTORY_RETENTION_SECONDS`     |
 | Reconciliation | `RECONCILE_METADATA_LIMIT`, `RECONCILE_OBJECT_LIMIT`, `RECONCILE_ORPHAN_GRACE_SECONDS`                                                                                               |
 | 開關與 origin  | `UPLOADS_ENABLED`, `UPLOAD_ORIGIN`, `CDN_ORIGIN`                                                                                                                                     |
 | 公開 Turnstile | `TURNSTILE_SITE_KEY`                                                                                                                                                                 |
@@ -124,8 +128,20 @@ UPLOAD_ACCESS_CODE
 | `ADMIN_LOGIN_RATE_LIMITER`         | 5 次／分鐘   | `CF-Connecting-IP`；本機使用固定開發 key              |
 | `INVITATION_EXCHANGE_RATE_LIMITER` | 20 次／分鐘  | `CF-Connecting-IP`；在 JSON 與 Turnstile 前執行       |
 | `PUBLIC_FILE_RATE_LIMITER`         | 300 次／分鐘 | `CF-Connecting-IP`；metadata、刪除、Worker 預覽與下載 |
+| `UPLOAD_MUTATION_RATE_LIMITER`     | 120 次／分鐘 | `CF-Connecting-IP`；reserve 與 raw upload PUT         |
 
-所有 binding 必須使用不同 namespace。管理員登入與邀請交換限流都在 Turnstile 前執行；公開單檔限流則在 D1 與 R2 操作前執行。超限一律回覆 429 與 `Retry-After: 60`。CDN Custom Domain 的直接物件流量不經 Worker，仍須使用 Cloudflare WAF／Rate Limiting Rule 保護。
+所有 binding 必須使用不同 namespace。管理員登入與邀請交換限流都在 Turnstile 前執行；公開單檔與上傳 mutation 限流則在 D1 與 R2 操作前執行。上傳門檻允許前端正常的 10 檔批次與 2 個平行上傳，不取代 D1 的精確額度帳本。超限一律回覆 429 與 `Retry-After: 60`。CDN Custom Domain 的直接物件流量不經 Worker，仍須使用 Cloudflare WAF／Rate Limiting Rule 保護。
+
+## 歷史資料保留
+
+- 已完成的 `cleanup_runs` 保留 30 日，之後由每小時 cleanup 每批最多清除 `CLEANUP_BATCH_LIMIT` 筆。
+- `failed`／`rejected` 上傳 metadata 在建立超過 7 日且 reservation 已進入 `expired`／`cancelled`、quota 已釋放後，依 child-first 順序清除；對應額度事件仍保留。
+- 撤銷或到期邀請保留 90 日；只有在已無 `files` 與 `upload_reservations` 關聯時，才會連同 invitation token、session 與 `rate_limit_events` 依 child-first 順序移除。
+- 有效或仍被檔案 metadata 引用的 invitation，其 `rate_limit_events` 必須保留，因為這些資料同時是 invitation 檔案數與 byte 額度的終身帳本。
+
+## CSP 觀察模式
+
+`public/index.html` 既有 CSP meta policy 持續保護目前已驗證的來源；Worker 另外送出較嚴格的 `Content-Security-Policy-Report-Only` header，將圖片與影音來源收斂到 `CDN_ORIGIN`，並觀察 `frame-ancestors 'none'`、`worker-src 'none'` 等候選規則。完成瀏覽器與 Turnstile 驗收前，不把這組候選規則切換成強制 header。
 
 ## JSON request body
 
@@ -147,7 +163,7 @@ UPLOAD_ACCESS_CODE
 
 - 不提供防毒、壓縮檔內容掃描、轉碼、影像最佳化或 multipart upload。
 - 單次 request 同時受程式的 50 MiB 限制與 Cloudflare 帳號當下 request body 上限約束。
-- Reconciliation 採批次處理，超出單次上限的資料由後續排程繼續。
+- Reconciliation 以設定值作為單頁大小，並在同次執行使用 D1／R2 cursor 掃描完所有分頁。
 - 公開預覽可能保留至 `MEDIA_PREVIEW_CACHE_SECONDS` 到期。
 - D1 的容量帳本只計算 `temp-storage/objects/`，不包含共用 `cdn` bucket 其他物件。
 - 邀請 URL 是 bearer capability；被轉傳時，其他人可在邀請有效與額度範圍內使用。

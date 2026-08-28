@@ -9,7 +9,7 @@ import { getAccessibleFile } from "../repositories/file-repository";
 import { deleteFileWithToken } from "../services/deletion-service";
 import { browseActiveFiles, type BrowseFileType } from "../services/file-browser-service";
 import { toPublicFile } from "../services/file-service";
-import { isFileId } from "../utils/hash";
+import { isFileId, isRandomToken32 } from "../utils/hash";
 
 export const fileRoutes = new Hono<AppEnv>();
 
@@ -50,8 +50,8 @@ fileRoutes.get("/files/:fileId", publicFileRateLimitMiddleware, async (context) 
 
 fileRoutes.delete("/files/:fileId", publicFileRateLimitMiddleware, async (context) => {
   const authorization = context.req.header("Authorization");
-  const match = /^DeleteToken\s+(.+)$/u.exec(authorization ?? "");
-  if (!match?.[1]) {
+  const match = /^DeleteToken\s+(\S+)$/u.exec(authorization ?? "");
+  if (!match?.[1] || !isRandomToken32(match[1])) {
     throw new DomainError("INVALID_DELETE_TOKEN", 403, "缺少刪除憑證。");
   }
 

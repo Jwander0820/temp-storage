@@ -4,7 +4,10 @@ import { DomainError } from "../domain/errors";
 import { TEMP_OBJECT_PREFIX } from "../domain/storage";
 import type { ReserveUploadInput } from "../domain/upload";
 import { getConfig } from "../env";
-import { jsonBodyLimitMiddleware } from "../middleware/request-protection";
+import {
+  jsonBodyLimitMiddleware,
+  uploadMutationRateLimitMiddleware,
+} from "../middleware/request-protection";
 import { uploadSessionMiddleware } from "../middleware/upload-session";
 import { reserveQuotaAndCreateRecords } from "../repositories/quota-repository";
 import {
@@ -60,6 +63,7 @@ function isByteStream(value: unknown): value is ReadableStream<Uint8Array> {
 }
 
 export const uploadRoutes = new Hono<AppEnv>();
+uploadRoutes.use("/uploads/*", uploadMutationRateLimitMiddleware);
 uploadRoutes.use("/uploads/*", uploadSessionMiddleware);
 uploadRoutes.use("/uploads/*", async (context, next) => {
   if (!context.get("uploadCanUpload")) {

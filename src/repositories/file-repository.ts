@@ -129,6 +129,41 @@ export async function listFilesForCleanup(
   return result.results;
 }
 
+export async function listActiveFilesForReconciliation(
+  database: D1Database,
+  cursor: { readonly createdAt: number; readonly id: string } | null,
+  limit: number,
+): Promise<FileRecord[]> {
+  const result = await database
+    .prepare(
+      `SELECT *
+       FROM files
+       WHERE status = 'active'
+         AND (
+           ?1 IS NULL
+           OR created_at > ?1
+           OR (created_at = ?1 AND id > ?2)
+         )
+       ORDER BY created_at, id
+       LIMIT ?3`,
+    )
+    .bind(cursor?.createdAt ?? null, cursor?.id ?? null, limit)
+    .all<FileRecord>();
+  return result.results;
+}
+
+export async function hasFileMetadataForObject(
+  database: D1Database,
+  objectKey: string,
+): Promise<boolean> {
+  return (
+    (await database
+      .prepare("SELECT 1 FROM files WHERE object_key = ?1")
+      .bind(objectKey)
+      .first()) !== null
+  );
+}
+
 export async function purgeDeletedMetadata(
   database: D1Database,
   cutoff: number,
@@ -159,6 +194,37 @@ export async function purgeDeletedMetadata(
   const deletedFiles = results[1];
   if (deletedFiles === undefined) {
     throw new DomainError("INTERNAL_ERROR", 500, "Metadata purge transaction was incomplete.");
+  }
+  return changes(deletedFiles);
+}
+
+export async function purgeFailedUploadMetadata(
+  database: D1Database,
+  cutoff: number,
+  limit: number,
+): Promise<number> {
+  const targetFilesSql = `
+    SELECT id
+    FROM files
+    WHERE status IN ('failed', 'rejected')
+      AND created_at <= ?1
+    ORDER BY created_at, id
+    LIMIT ?2
+  `;
+  const results = await database.batch([
+    database
+      .prepare(
+        `DELETE FROM upload_reservations
+         WHERE file_id IN (${targetFilesSql})
+           AND status IN ('expired', 'cancelled')
+           AND quota_released_at IS NOT NULL`,
+      )
+      .bind(cutoff, limit),
+    database.prepare(`DELETE FROM files WHERE id IN (${targetFilesSql})`).bind(cutoff, limit),
+  ]);
+  const deletedFiles = results[1];
+  if (deletedFiles === undefined) {
+    throw new DomainError("INTERNAL_ERROR", 500, "Failed upload metadata purge was incomplete.");
   }
   return changes(deletedFiles);
 }

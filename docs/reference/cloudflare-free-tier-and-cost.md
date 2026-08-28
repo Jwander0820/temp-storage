@@ -2,7 +2,7 @@
 
 > 狀態：現行參考文件
 > 最後更新：2026-08-28
-> 適用設定：`wrangler.jsonc` 與 D1 migrations `0001`–`0009`
+> 適用設定：`wrangler.jsonc` 與 D1 migrations `0001`–`0010`
 
 這份文件用來估算 Jwander Temp Storage 在 Cloudflare Workers Free、D1 Free 與 R2 Standard
 下的用量，並說明遭遇異常流量時哪些資源會停止服務、哪些資源可能產生帳單。
@@ -66,17 +66,17 @@ buckets 加總；`cdn` bucket 既有的其他物件也必須計入。
 
 ## 3. 一次操作會消耗什麼
 
-| 使用者操作          |                  Workers | D1                                                 | R2                                                  |
-| ------------------- | -----------------------: | -------------------------------------------------- | --------------------------------------------------- |
-| 冷啟動頁面          |         約 5–10 requests | 依頁面有 0–數次 query                              | 無；inline preview 另計                             |
-| 邀請交換            |                1 request | token lookup、usage aggregate、1 session write     | 無                                                  |
-| 讀取共享清單        |                1 request | session／invitation aggregate + 最多 25 個檔案 row | 無                                                  |
-| 建立 reservation    |                1 request | 多次 indexed count／sum + 約 4 個資料 row 變更     | 無                                                  |
-| 完成一個上傳        |                1 request | claim／complete 約 4 個資料 row 變更               | 1 Class A PutObject                                 |
-| Worker 下載或 Range | 每個 GET／HEAD 1 request | 約 1 個 indexed file row                           | 每個 GET／HEAD 1 Class B                            |
-| CDN inline preview  |                0 Workers | 0 D1                                               | edge cache miss 才是 1 Class B                      |
-| 每小時 cleanup      |                 排程執行 | 至少新增、更新各 1 個 cleanup row；有資料時另計    | DeleteObject 免費                                   |
-| 每日 reconciliation |                 排程執行 | 最多掃描 500 個 active file rows，並逐物件 lookup  | 1 Class A ListObjects + 最多 500 Class B HeadObject |
+| 使用者操作          |                  Workers | D1                                                 | R2                                                                   |
+| ------------------- | -----------------------: | -------------------------------------------------- | -------------------------------------------------------------------- |
+| 冷啟動頁面          |         約 5–10 requests | 依頁面有 0–數次 query                              | 無；inline preview 另計                                              |
+| 邀請交換            |                1 request | token lookup、usage aggregate、1 session write     | 無                                                                   |
+| 讀取共享清單        |                1 request | session／invitation aggregate + 最多 25 個檔案 row | 無                                                                   |
+| 建立 reservation    |                1 request | 多次 indexed count／sum + 約 4 個資料 row 變更     | 無                                                                   |
+| 完成一個上傳        |                1 request | claim／complete 約 4 個資料 row 變更               | 1 Class A PutObject                                                  |
+| Worker 下載或 Range | 每個 GET／HEAD 1 request | 約 1 個 indexed file row                           | 每個 GET／HEAD 1 Class B                                             |
+| CDN inline preview  |                0 Workers | 0 D1                                               | edge cache miss 才是 1 Class B                                       |
+| 每小時 cleanup      |                 排程執行 | 至少新增、更新各 1 個 cleanup row；有資料時另計    | DeleteObject 免費                                                    |
+| 每日 reconciliation |                 排程執行 | 分頁掃描所有 active file rows，並逐物件 lookup     | 每 1,000 objects 一次 ListObjects + 每個 active file 一次 HeadObject |
 
 D1 計費 row 不等於 SQL statement 數。寫入 indexed 欄位時 index 也會增加 rows written。以目前
 schema，成功上傳從 reserve 到 active 的資料表本體約變更 8 個 rows；規劃時應保守抓
@@ -179,6 +179,9 @@ DDoS 判定：
 7. 保持 `r2.dev` 關閉。Custom Domain 會讓整個 bucket 的已知 key 公開，不只本專案 prefix；共用
    `cdn` bucket 的其他物件必須被視為同一公開邊界。
 8. 確認 Cloudflare Access 只涵蓋 `/admin`、`/admin/*`、`/api/admin/*`，並定期測試未登入阻擋。
+9. 確認 `upload.jwander.net` 與 `cdn.jwander.net` 的 HTTP 請求會轉往 HTTPS；HSTS 初期使用一個月
+   Max Age，保持 `includeSubDomains` 與 preload 關閉。整個 zone 尚未完成 HTTPS 盤點時，使用限定這
+   兩個 hostname 的 Response Header Transform Rule，不開啟 zone-wide HSTS。
 
 WAF Free plan 能力與規則數量見 [WAF overview](https://developers.cloudflare.com/waf/)、
 [Custom rules](https://developers.cloudflare.com/waf/custom-rules/) 與
@@ -186,21 +189,15 @@ WAF Free plan 能力與規則數量見 [WAF overview](https://developers.cloudfl
 
 ### Worker 內部
 
-現行程式已完成 access code oracle、D1 deleted metadata foreign key、大型 JSON、公開讀取／邀請交換限流與
-session mutation CSRF 修正：access code 只在 Turnstile 與有效 invitation token 後驗證；metadata purge
-會在同一 D1 batch 先刪 reservation child，再刪 file parent，並由 migration `0009` 加入 purge index；
-帶有 admin／invitation session Cookie 的 mutation 也必須提供完全符合 `UPLOAD_ORIGIN` 的 Origin。這些
-程式與 migration 仍需正式部署後才在 production 生效。
+現行程式已完成 access code oracle、D1 deleted metadata foreign key、大型 JSON、公開讀取／邀請交換／
+上傳 mutation 限流、session mutation CSRF、固定長度 capability 驗證、reconciliation 全分頁與歷史資料
+保留政策。metadata purge 會在同一 D1 batch 先刪 reservation child，再刪 file parent；migration
+`0009` 與 `0010` 分別加入 metadata purge 與歷史清理索引。`rate_limit_events` 只會跟著超過保留期且已
+無檔案關聯的退休 invitation 清除，不會重設有效 invitation 的終身額度。這些程式與 migration 仍需
+正式部署後才在 production 生效。
 
-以下項目是現行實作仍應補強的成本與濫用護欄：
-
-1. 對 reserve 與 upload PUT 加上便宜的 Rate Limiting binding，且在 D1／R2 操作前執行。Workers
-   Rate Limiting 是 local、eventually consistent，適合濫用防護，不可當精確 quota 帳本。
-2. 對 invitation session cookie 與 DeleteToken 先驗證固定長度，再做雜湊。
-3. 為 `rate_limit_events`、歷史 invitations 與 `cleanup_runs` 設定可驗證的保留政策。
-4. reconciliation 使用 R2 list cursor 與 D1 cursor；目前只掃第一批 1,000 objects／500 files。
-5. 評估將 inline preview 放到獨立公開 bucket／prefix，或全部經 Worker 授權。現在所有檔案都在
-   可推導的 `YYYY/MM/DD/:fileId` key；Custom Domain 本身不能依 D1 status 或 preview policy 授權。
+仍可評估將 inline preview 放到獨立公開 bucket／prefix，或全部經 Worker 授權。現在所有檔案都在
+可推導的 `YYYY/MM/DD/:fileId` key；Custom Domain 本身不能依 D1 status 或 preview policy 授權。
 
 Cloudflare Dashboard 的完整設定值、驗證與回復步驟見
 [`../development/cloudflare-edge-protection.md`](../development/cloudflare-edge-protection.md)；D1 metadata foreign
@@ -232,5 +229,5 @@ Rate Limiting binding 行為見
 - [ ] CDN cache hit ratio 是否穩定，是否出現大量唯一 query string 或異常 Range。
 - [ ] `cleanup_runs`、`rate_limit_events`、`upload_reservations` 與 `files` row count 是否持續單向增長。
 - [ ] Workers Logs 是否接近 200,000 events／日；2026-10-01 後把 trace spans 一併計入。
-- [ ] Budget alerts、通知收件者、Cloudflare Access、WAF 與 `r2.dev` 狀態是否正確。
+- [ ] Budget alerts、通知收件者、Cloudflare Access、WAF、HTTPS／HSTS 與 `r2.dev` 狀態是否正確。
 - [ ] 使用 D1 query `meta` 或 Dashboard 校正本文件的每操作 row 估算。
