@@ -1,7 +1,7 @@
 # 系統架構總覽
 
 > 狀態：現行架構  
-> 最後更新：2026-08-27  
+> 最後更新：2026-08-28
 > 適用版本：D1 migrations `0001`–`0009`
 
 ## 1. 系統目標
@@ -26,7 +26,7 @@ Jwander Temp Storage 是私有、邀請制的共享暫存檔案服務。系統�
 | Object storage | Cloudflare R2 `cdn` bucket                | `temp-storage/objects/` 下的檔案本體                 |
 | Public media   | R2 Custom Domain                          | 只提供白名單 inline 媒體的直接預覽                   |
 | Bot protection | Cloudflare Turnstile                      | 邀請交換與管理員登入前的人機驗證                     |
-| Rate limiting  | Workers Rate Limiting binding + D1 events | 檔案清單極端輪詢與上傳 IP／流量限制                  |
+| Rate limiting  | Workers Rate Limiting binding + D1 events | 邀請交換、檔案讀取、清單輪詢與上傳 IP／流量限制      |
 | Scheduled work | Worker Cron + R2 Lifecycle                | 每小時清理、每日 reconciliation 與漏刪保險           |
 
 ## 3. 高階拓樸
@@ -83,6 +83,8 @@ test/                   # Workers runtime、D1 與 R2 整合測試
 
 這些能力彼此獨立。永久 `ADMIN_TOKEN` 不能直接操作管理 API；Admin session 不自動授予上傳權限；browse-only invitation 不可因額度欄位或 UI 狀態繞過後端限制。正式環境以 Cloudflare Access 只包住 `/admin`、`/admin/*` 與 `/api/admin/*`，不得讓一般邀請流程經過 Access。
 
+帶有 admin 或 invitation session Cookie 的 `POST`、`PUT`、`PATCH`、`DELETE` 必須提供完全符合 `UPLOAD_ORIGIN` 的 `Origin`。缺少 Origin、`Origin: null` 或同一主網域下其他子網域的要求，會在 session、D1 與 R2 操作前回覆 403；匿名 mutation 與不使用 Cookie 的 capability 仍由各自的既有驗證處理。
+
 ## 6. 核心流程
 
 ### 6.1 邀請建立與交換
@@ -92,6 +94,8 @@ test/                   # Workers runtime、D1 與 R2 整合測試
 3. 瀏覽器讀取 fragment，連同 Turnstile token 與選用 access code 呼叫 `/api/invitations/exchange`。
 4. Worker 驗證後建立短期 HttpOnly invitation session，回傳權限與剩餘額度。
 5. 複製邀請會新增等效連結，原連結與既有 session 保持有效；重新簽發或撤銷時，所有舊連結與相關 session 一併失效。
+
+邀請交換會在讀取 JSON 與呼叫 Turnstile 前先套用 IP 限流。所有 JSON mutation request 固定限制為 16 KiB，避免大型或畸形 request 放大 Worker 成本。
 
 ### 6.2 管理員登入
 
@@ -133,6 +137,8 @@ PUT /api/uploads/:uploadId
 - 白名單媒體可使用 `cdn.jwander.net` 的 R2 URL inline 預覽。
 - `/p/:id` 是 Worker 預覽 fallback。
 - `/d/:id` 永遠先由 Worker 查 D1 狀態，再從 R2 串流附件下載並支援 HEAD/Range。
+
+Worker 提供的公開單檔 metadata、DeleteToken、預覽與下載會在 D1／R2 前共用寬鬆的 IP 限流。R2 Custom Domain 不經 Worker，另由 Cloudflare WAF 與 CDN rate rule 控制。
 
 邀請檔案數或容量用完時，只拒絕新的 reservation；既有有效 session 仍可瀏覽與下載。
 

@@ -7,6 +7,7 @@ import {
   mockSuccessfulTurnstile,
   resetState,
   TEST_ADMIN_TOKEN,
+  TEST_UPLOAD_ORIGIN,
 } from "./helpers";
 
 let loginSequence = 0;
@@ -65,7 +66,11 @@ describe("admin browser session", () => {
     const created = await exports.default.fetch(
       new Request("https://upload.example.test/api/admin/invitations", {
         method: "POST",
-        headers: { Cookie: cookie, "Content-Type": "application/json" },
+        headers: {
+          Cookie: cookie,
+          "Content-Type": "application/json",
+          Origin: TEST_UPLOAD_ORIGIN,
+        },
         body: JSON.stringify({
           label: "手機建立",
           expiresInSeconds: 7 * 86_400,
@@ -98,7 +103,7 @@ describe("admin browser session", () => {
     const revoked = await exports.default.fetch(
       new Request(`https://upload.example.test/api/admin/invitations/${createdPayload.id}`, {
         method: "DELETE",
-        headers: { Cookie: cookie },
+        headers: { Cookie: cookie, Origin: TEST_UPLOAD_ORIGIN },
       }),
     );
     expect(revoked.status).toBe(204);
@@ -106,7 +111,7 @@ describe("admin browser session", () => {
     const logout = await exports.default.fetch(
       new Request("https://upload.example.test/api/admin/session", {
         method: "DELETE",
-        headers: { Cookie: cookie },
+        headers: { Cookie: cookie, Origin: TEST_UPLOAD_ORIGIN },
       }),
     );
     expect(logout.status).toBe(204);
@@ -174,7 +179,7 @@ describe("admin browser session", () => {
     const response = await exports.default.fetch(
       new Request("https://upload.example.test/api/admin/sessions/revoke-all", {
         method: "POST",
-        headers: { Cookie: sessions[0] ?? "" },
+        headers: { Cookie: sessions[0] ?? "", Origin: TEST_UPLOAD_ORIGIN },
       }),
     );
     expect(response.status).toBe(204);

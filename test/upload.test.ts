@@ -1,7 +1,12 @@
 import { env, exports } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CompletedUpload } from "./helpers";
-import { createTestInvitationSession, mockSuccessfulTurnstile, resetState } from "./helpers";
+import {
+  createTestInvitationSession,
+  mockSuccessfulTurnstile,
+  resetState,
+  TEST_UPLOAD_ORIGIN,
+} from "./helpers";
 
 let sessionCookie = "";
 
@@ -13,6 +18,7 @@ async function reserve(filename: string, bytes: Uint8Array, declaredMime: string
         "CF-Connecting-IP": "203.0.113.10",
         "Content-Type": "application/json",
         Cookie: sessionCookie,
+        Origin: TEST_UPLOAD_ORIGIN,
       },
       body: JSON.stringify({
         filename,
@@ -38,6 +44,7 @@ async function upload(
         "Content-Length": String(bytes.byteLength),
         "Content-Type": "application/octet-stream",
         Cookie: sessionCookie,
+        Origin: TEST_UPLOAD_ORIGIN,
       },
       body: bytes,
     }),
@@ -142,7 +149,11 @@ describe("upload, preview, download, and delete", () => {
     const response = await exports.default.fetch(
       new Request(`https://upload.example.test${reservation.uploadUrl}`, {
         method: "PUT",
-        headers: { "Content-Length": String(bytes.byteLength), Cookie: sessionCookie },
+        headers: {
+          "Content-Length": String(bytes.byteLength),
+          Cookie: sessionCookie,
+          Origin: TEST_UPLOAD_ORIGIN,
+        },
         body: bytes,
       }),
     );

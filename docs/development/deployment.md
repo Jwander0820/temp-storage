@@ -56,8 +56,10 @@ Workers Builds 使用的 API token 必須具備 Workers Scripts、D1、R2 與 Wo
 - `FILES`：R2 `cdn` bucket。
 - `FILE_BROWSER_RATE_LIMITER`：共享檔案清單的 session 級限流。
 - `ADMIN_LOGIN_RATE_LIMITER`：`POST /api/admin/session` 的獨立 IP 級限流，預設每分鐘 5 次；不得與檔案瀏覽 binding 共用 namespace。
+- `INVITATION_EXCHANGE_RATE_LIMITER`：邀請交換的獨立 IP 級限流，預設每分鐘 20 次，且在 JSON 與 Turnstile 前執行。
+- `PUBLIC_FILE_RATE_LIMITER`：Worker 公開單檔 metadata、刪除、預覽與下載的 IP 級限流，預設每分鐘 300 次。
 
-在其他 Cloudflare 帳號重建時，必須更新 D1 `database_id`、Turnstile site key，並確認 Rate Limiting `namespace_id` 沒有和該帳號其他 binding 共用。
+在其他 Cloudflare 帳號重建時，必須更新 D1 `database_id`、Turnstile site key，並確認所有 Rate Limiting `namespace_id` 彼此不同，也沒有和該帳號其他 binding 共用。
 
 ## Runtime secrets
 

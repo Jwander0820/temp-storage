@@ -4,6 +4,7 @@ import { DomainError } from "../domain/errors";
 import { getConfig } from "../env";
 import { fileBrowserAccessMiddleware } from "../middleware/file-browser-access";
 import { fileBrowserRateLimitMiddleware } from "../middleware/file-browser-rate-limit";
+import { publicFileRateLimitMiddleware } from "../middleware/request-protection";
 import { getAccessibleFile } from "../repositories/file-repository";
 import { deleteFileWithToken } from "../services/deletion-service";
 import { browseActiveFiles, type BrowseFileType } from "../services/file-browser-service";
@@ -33,7 +34,7 @@ fileRoutes.get(
   },
 );
 
-fileRoutes.get("/files/:fileId", async (context) => {
+fileRoutes.get("/files/:fileId", publicFileRateLimitMiddleware, async (context) => {
   const fileId = context.req.param("fileId");
   if (!isFileId(fileId)) {
     throw new DomainError("FILE_NOT_FOUND", 404, "找不到檔案。");
@@ -47,7 +48,7 @@ fileRoutes.get("/files/:fileId", async (context) => {
   return context.json(toPublicFile(file, getConfig(context.env)));
 });
 
-fileRoutes.delete("/files/:fileId", async (context) => {
+fileRoutes.delete("/files/:fileId", publicFileRateLimitMiddleware, async (context) => {
   const authorization = context.req.header("Authorization");
   const match = /^DeleteToken\s+(.+)$/u.exec(authorization ?? "");
   if (!match?.[1]) {

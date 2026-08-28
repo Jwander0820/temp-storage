@@ -186,23 +186,20 @@ WAF Free plan 能力與規則數量見 [WAF overview](https://developers.cloudfl
 
 ### Worker 內部
 
-現行程式已完成 access code oracle 與 D1 deleted metadata foreign key 修正：access code 只在 Turnstile 與
-有效 invitation token 後驗證；metadata purge 會在同一 D1 batch 先刪 reservation child，再刪 file
-parent，並由 migration `0009` 加入 purge index。兩者仍需正式部署／migration 後才在 production 生效。
+現行程式已完成 access code oracle、D1 deleted metadata foreign key、大型 JSON、公開讀取／邀請交換限流與
+session mutation CSRF 修正：access code 只在 Turnstile 與有效 invitation token 後驗證；metadata purge
+會在同一 D1 batch 先刪 reservation child，再刪 file parent，並由 migration `0009` 加入 purge index；
+帶有 admin／invitation session Cookie 的 mutation 也必須提供完全符合 `UPLOAD_ORIGIN` 的 Origin。這些
+程式與 migration 仍需正式部署後才在 production 生效。
 
 以下項目是現行實作仍應補強的成本與濫用護欄：
 
-1. 對 invitation exchange、reserve、upload PUT、public metadata 與 download 分別加上便宜的
-   Rate Limiting binding，且在 D1／R2 操作前執行。Workers Rate Limiting 是 local、eventually
-   consistent，適合濫用防護，不可當精確 quota 帳本。
-2. 對 JSON endpoint 在 `context.req.json()` 前限制 `Content-Length`，避免匿名 100 MB JSON 消耗
-   128 MB Worker memory 與 10 ms CPU。
-3. 所有 session-authenticated mutation 驗證 `Origin` 為完整 `UPLOAD_ORIGIN`，防止同一
-   registrable domain 的其他子網域利用 same-site cookies 發動 CSRF。
-4. 對 invitation session cookie 與 DeleteToken 先驗證固定長度，再做雜湊。
-5. 為 `rate_limit_events`、歷史 invitations 與 `cleanup_runs` 設定可驗證的保留政策。
-6. reconciliation 使用 R2 list cursor 與 D1 cursor；目前只掃第一批 1,000 objects／500 files。
-7. 評估將 inline preview 放到獨立公開 bucket／prefix，或全部經 Worker 授權。現在所有檔案都在
+1. 對 reserve 與 upload PUT 加上便宜的 Rate Limiting binding，且在 D1／R2 操作前執行。Workers
+   Rate Limiting 是 local、eventually consistent，適合濫用防護，不可當精確 quota 帳本。
+2. 對 invitation session cookie 與 DeleteToken 先驗證固定長度，再做雜湊。
+3. 為 `rate_limit_events`、歷史 invitations 與 `cleanup_runs` 設定可驗證的保留政策。
+4. reconciliation 使用 R2 list cursor 與 D1 cursor；目前只掃第一批 1,000 objects／500 files。
+5. 評估將 inline preview 放到獨立公開 bucket／prefix，或全部經 Worker 授權。現在所有檔案都在
    可推導的 `YYYY/MM/DD/:fileId` key；Custom Domain 本身不能依 D1 status 或 preview policy 授權。
 
 Cloudflare Dashboard 的完整設定值、驗證與回復步驟見

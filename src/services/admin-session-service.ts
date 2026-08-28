@@ -10,7 +10,7 @@ import {
 } from "../repositories/admin-session-repository";
 import { hashPepperedValue, randomToken } from "../utils/hash";
 
-const ADMIN_SESSION_COOKIE = "jwander_admin_session";
+export const ADMIN_SESSION_COOKIE = "jwander_admin_session";
 
 function adminSessionTokenHash(pepper: string, token: string): Promise<string> {
   return hashPepperedValue(pepper, `admin-session\u0000${token}`);

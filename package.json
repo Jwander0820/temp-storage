@@ -34,22 +34,22 @@
     "types:check": "cross-env XDG_CONFIG_HOME=.wrangler/xdg CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler types src/worker-configuration.d.ts --check && pnpm typecheck"
   },
   "dependencies": {
-    "hono": "latest",
+    "hono": "4.13.5",
     "qrcode": "^1.5.4"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "latest",
-    "@eslint/js": "latest",
-    "@types/node": "latest",
+    "@cloudflare/vitest-pool-workers": "0.22.0",
+    "@eslint/js": "10.0.1",
+    "@types/node": "26.4.0",
     "@types/qrcode": "^1.5.6",
-    "concurrently": "latest",
-    "cross-env": "latest",
-    "eslint": "latest",
-    "prettier": "latest",
+    "concurrently": "10.0.5",
+    "cross-env": "10.1.0",
+    "eslint": "10.9.1",
+    "prettier": "3.9.6",
     "typescript": "^6.0.0",
-    "typescript-eslint": "latest",
-    "vite": "latest",
-    "vitest": "latest",
-    "wrangler": "latest"
+    "typescript-eslint": "8.68.0",
+    "vite": "8.2.2",
+    "vitest": "4.1.11",
+    "wrangler": "4.126.0"
   }
 }

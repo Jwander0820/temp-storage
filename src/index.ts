@@ -5,6 +5,7 @@ import { assertValidAdminToken, getConfig } from "./env";
 import { handleError } from "./middleware/error-handler";
 import { hostnameBoundaryMiddleware } from "./middleware/hostname-boundary";
 import { requestIdMiddleware } from "./middleware/request-id";
+import { sameOriginSessionMutationMiddleware } from "./middleware/same-origin-mutation";
 import { securityHeadersMiddleware } from "./middleware/security-headers";
 import { adminRoutes } from "./routes/admin";
 import { fileRoutes } from "./routes/files";
@@ -24,6 +25,7 @@ app.use("*", async (context, next) => {
 });
 app.use("*", securityHeadersMiddleware);
 app.use("*", hostnameBoundaryMiddleware);
+app.use("*", sameOriginSessionMutationMiddleware);
 
 app.get("/api/health", (context) => {
   context.header(

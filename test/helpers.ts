@@ -9,6 +9,8 @@ import { TEMP_OBJECT_PREFIX } from "../src/domain/storage";
 
 export const TEST_INVITATION_ID = "test-invitation";
 export const TEST_ADMIN_TOKEN = "test-admin-token-32-bytes-minimum-0123456789";
+export const TEST_UPLOAD_ORIGIN = "https://upload.example.test";
+let invitationExchangeSequence = 0;
 export const TEST_UPLOAD_RATE_LIMITS: UploadRateLimits = {
   reservationWindowSeconds: 600,
   reservationLimit: 10,
@@ -91,7 +93,10 @@ export async function createTestInvitationSession(): Promise<string> {
   const exchange = await exports.default.fetch(
     new Request("https://upload.example.test/api/invitations/exchange", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "CF-Connecting-IP": `203.0.113.${++invitationExchangeSequence}`,
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({ token, turnstileToken: "test-invitation-challenge" }),
     }),
   );

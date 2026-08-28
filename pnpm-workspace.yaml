@@ -3,4 +3,6 @@ allowBuilds:
   sharp: true
   workerd: true
 enableGlobalVirtualStore: false
+overrides:
+  brace-expansion: 5.0.9
 verifyDepsBeforeRun: warn

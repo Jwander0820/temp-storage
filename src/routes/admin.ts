@@ -5,6 +5,7 @@ import { DomainError } from "../domain/errors";
 import { getConfig, type AppConfig } from "../env";
 import { adminAuthMiddleware } from "../middleware/admin-auth";
 import { adminLoginRateLimitMiddleware } from "../middleware/admin-login-rate-limit";
+import { jsonBodyLimitMiddleware } from "../middleware/request-protection";
 import { listAdminFiles } from "../repositories/file-repository";
 import {
   createInvitation,
@@ -27,6 +28,7 @@ import { createInvitationTokenHash } from "../services/invitation-service";
 import { verifyTurnstile } from "../services/turnstile-service";
 import { randomToken } from "../utils/hash";
 import { timingSafeStringEqual } from "../utils/hash";
+import { readJsonBody } from "../utils/request";
 
 const FILE_STATUSES = new Set<FileStatus>([
   "reserved",
@@ -147,53 +149,58 @@ function adminLoginFailure(): DomainError {
   return new DomainError("INVALID_REQUEST", 401, "管理員驗證失敗。");
 }
 
-adminRoutes.post("/session", adminLoginRateLimitMiddleware, async (context) => {
-  const authorization = context.req.header("Authorization");
-  const match = /^Bearer\s+(.+)$/u.exec(authorization ?? "");
-  let input: unknown;
-  try {
-    input = await context.req.json<unknown>();
-  } catch {
-    logAdminLogin(context.get("requestId"), false);
-    throw adminLoginFailure();
-  }
-  const turnstileToken =
-    typeof input === "object" && input !== null
-      ? (input as Record<string, unknown>).turnstileToken
-      : null;
-  if (typeof turnstileToken !== "string") {
-    logAdminLogin(context.get("requestId"), false);
-    throw adminLoginFailure();
-  }
-  try {
-    await verifyTurnstile(
-      context.env,
-      turnstileToken,
-      context.req.header("CF-Connecting-IP") ?? "local-development",
-      context.get("requestId"),
-      "admin",
-    );
-  } catch (error) {
-    if (error instanceof DomainError && error.code === "TURNSTILE_FAILED") {
+adminRoutes.post(
+  "/session",
+  adminLoginRateLimitMiddleware,
+  jsonBodyLimitMiddleware,
+  async (context) => {
+    const authorization = context.req.header("Authorization");
+    const match = /^Bearer\s+(.+)$/u.exec(authorization ?? "");
+    let input: unknown;
+    try {
+      input = await context.req.json<unknown>();
+    } catch {
       logAdminLogin(context.get("requestId"), false);
       throw adminLoginFailure();
     }
-    throw error;
-  }
-  if (
-    match?.[1] === undefined ||
-    !(await timingSafeStringEqual(match[1], context.env.ADMIN_TOKEN))
-  ) {
-    logAdminLogin(context.get("requestId"), false);
-    throw adminLoginFailure();
-  }
-  const expiresAt = await issueAdminSession(context);
-  logAdminLogin(context.get("requestId"), true);
-  return context.json({
-    authenticated: true,
-    sessionExpiresAt: new Date(expiresAt * 1000).toISOString(),
-  });
-});
+    const turnstileToken =
+      typeof input === "object" && input !== null
+        ? (input as Record<string, unknown>).turnstileToken
+        : null;
+    if (typeof turnstileToken !== "string") {
+      logAdminLogin(context.get("requestId"), false);
+      throw adminLoginFailure();
+    }
+    try {
+      await verifyTurnstile(
+        context.env,
+        turnstileToken,
+        context.req.header("CF-Connecting-IP") ?? "local-development",
+        context.get("requestId"),
+        "admin",
+      );
+    } catch (error) {
+      if (error instanceof DomainError && error.code === "TURNSTILE_FAILED") {
+        logAdminLogin(context.get("requestId"), false);
+        throw adminLoginFailure();
+      }
+      throw error;
+    }
+    if (
+      match?.[1] === undefined ||
+      !(await timingSafeStringEqual(match[1], context.env.ADMIN_TOKEN))
+    ) {
+      logAdminLogin(context.get("requestId"), false);
+      throw adminLoginFailure();
+    }
+    const expiresAt = await issueAdminSession(context);
+    logAdminLogin(context.get("requestId"), true);
+    return context.json({
+      authenticated: true,
+      sessionExpiresAt: new Date(expiresAt * 1000).toISOString(),
+    });
+  },
+);
 
 adminRoutes.use("*", adminAuthMiddleware);
 
@@ -292,9 +299,9 @@ adminRoutes.get("/files", async (context) => {
   });
 });
 
-adminRoutes.post("/invitations", async (context) => {
+adminRoutes.post("/invitations", jsonBodyLimitMiddleware, async (context) => {
   const config = getConfig(context.env);
-  const input = parseCreateInvitation(await context.req.json<unknown>(), config);
+  const input = parseCreateInvitation(await readJsonBody(context), config);
   const now = Math.floor(Date.now() / 1000);
   const token = randomToken(32);
   const id = randomToken(16);

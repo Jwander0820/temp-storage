@@ -4,6 +4,7 @@ import { DomainError } from "../domain/errors";
 import { TEMP_OBJECT_PREFIX } from "../domain/storage";
 import type { ReserveUploadInput } from "../domain/upload";
 import { getConfig } from "../env";
+import { jsonBodyLimitMiddleware } from "../middleware/request-protection";
 import { uploadSessionMiddleware } from "../middleware/upload-session";
 import { reserveQuotaAndCreateRecords } from "../repositories/quota-repository";
 import {
@@ -17,6 +18,7 @@ import { toPublicFile } from "../services/file-service";
 import { storeObject } from "../services/r2-service";
 import { getExtension, isBlockedExtension, sanitizeOriginalFilename } from "../utils/filename";
 import { createDeleteToken, createFileId, hashPepperedValue } from "../utils/hash";
+import { readJsonBody } from "../utils/request";
 import { peekStream } from "../utils/stream";
 
 function parseReserveInput(value: unknown): ReserveUploadInput {
@@ -70,13 +72,13 @@ uploadRoutes.use("/uploads/*", async (context, next) => {
   await next();
 });
 
-uploadRoutes.post("/uploads/reserve", async (context) => {
+uploadRoutes.post("/uploads/reserve", jsonBodyLimitMiddleware, async (context) => {
   const config = getConfig(context.env);
   if (!config.uploadsEnabled) {
     throw new DomainError("UPLOADS_DISABLED", 503, "目前暫停接受新上傳。");
   }
 
-  const input = parseReserveInput(await context.req.json<unknown>());
+  const input = parseReserveInput(await readJsonBody(context));
   const filename = sanitizeOriginalFilename(input.filename);
   if (filename.length === 0 || input.filename.length > 255) {
     throw new DomainError("INVALID_REQUEST", 400, "檔名長度不正確。");

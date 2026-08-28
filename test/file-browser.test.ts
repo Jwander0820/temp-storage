@@ -6,6 +6,7 @@ import {
   createTestInvitationSession,
   mockSuccessfulTurnstile,
   resetState,
+  TEST_UPLOAD_ORIGIN,
 } from "./helpers";
 
 const adminToken = "test-admin-token-32-bytes-minimum-0123456789";
@@ -240,7 +241,7 @@ describe("shared file browser", () => {
       }),
     );
     const cookie = (login.headers.get("Set-Cookie") ?? "").split(";", 1)[0] ?? "";
-    const adminHeaders = { Cookie: cookie };
+    const adminHeaders = { Cookie: cookie, Origin: TEST_UPLOAD_ORIGIN };
 
     const sharedBrowse = await exports.default.fetch(
       new Request("https://upload.example.test/api/files?type=all", {

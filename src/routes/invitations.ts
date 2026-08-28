@@ -1,6 +1,10 @@
 import { Hono } from "hono";
 import type { AppEnv } from "../app-types";
 import { DomainError } from "../domain/errors";
+import {
+  invitationExchangeRateLimitMiddleware,
+  jsonBodyLimitMiddleware,
+} from "../middleware/request-protection";
 import { uploadSessionMiddleware } from "../middleware/upload-session";
 import { getInvitationSummary } from "../repositories/invitation-repository";
 import {
@@ -10,6 +14,7 @@ import {
   revokeCurrentInvitationSession,
 } from "../services/invitation-service";
 import { verifyOptionalAccessCode, verifyTurnstile } from "../services/turnstile-service";
+import { readJsonBody } from "../utils/request";
 
 interface ExchangeInvitationInput {
   readonly token: string;
@@ -76,26 +81,31 @@ function invitationPayload(
 
 export const invitationRoutes = new Hono<AppEnv>();
 
-invitationRoutes.post("/invitations/exchange", async (context) => {
-  context.header("Cache-Control", "private, no-store");
-  const input = parseExchangeInput(await context.req.json<unknown>());
-  await verifyTurnstile(
-    context.env,
-    input.turnstileToken,
-    context.req.header("CF-Connecting-IP") ?? "local-development",
-    context.get("requestId"),
-    "invite",
-  );
+invitationRoutes.post(
+  "/invitations/exchange",
+  invitationExchangeRateLimitMiddleware,
+  jsonBodyLimitMiddleware,
+  async (context) => {
+    context.header("Cache-Control", "private, no-store");
+    const input = parseExchangeInput(await readJsonBody(context));
+    await verifyTurnstile(
+      context.env,
+      input.turnstileToken,
+      context.req.header("CF-Connecting-IP") ?? "local-development",
+      context.get("requestId"),
+      "invite",
+    );
 
-  const invitation = await resolveInvitationToken(context, input.token);
-  await verifyOptionalAccessCode(context.env, input.accessCode);
-  const sessionExpiresAt = await createInvitationSession(context, invitation);
-  const summary = await getInvitationSummary(context.env.DB, invitation.id);
-  if (summary === null) {
-    throw new DomainError("INTERNAL_ERROR", 500, "無法讀取邀請資料。");
-  }
-  return context.json(invitationPayload(summary, sessionExpiresAt));
-});
+    const invitation = await resolveInvitationToken(context, input.token);
+    await verifyOptionalAccessCode(context.env, input.accessCode);
+    const sessionExpiresAt = await createInvitationSession(context, invitation);
+    const summary = await getInvitationSummary(context.env.DB, invitation.id);
+    if (summary === null) {
+      throw new DomainError("INTERNAL_ERROR", 500, "無法讀取邀請資料。");
+    }
+    return context.json(invitationPayload(summary, sessionExpiresAt));
+  },
+);
 
 invitationRoutes.get("/invitations/session", uploadSessionMiddleware, async (context) => {
   context.header("Cache-Control", "private, no-store");

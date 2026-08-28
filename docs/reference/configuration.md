@@ -1,28 +1,30 @@
 # 執行參數與服務限制
 
 > 狀態：現行參考文件  
-> 最後更新：2026-08-27  
+> 最後更新：2026-08-28
 > 用途：查詢非秘密 runtime 參數、預設限制與秘密名稱
 
 正式非秘密參數集中在 [`../../wrangler.jsonc`](../../wrangler.jsonc) 的 `vars`。Worker 啟動時由 `src/env.ts` 驗證型別與參數關係；設定錯誤會 fail closed，不會靜默改用硬編碼值。
 
 ## 使用者可感知的預設限制
 
-| 項目               |             預設值 |
-| ------------------ | -----------------: |
-| 全站容量           |              3 GiB |
-| 單檔上限           |             50 MiB |
-| 檔案保存           |              90 天 |
-| 單次加入           |          10 個檔案 |
-| 同時上傳           |               2 個 |
-| 每 IP 每小時上傳   |            500 MiB |
-| 每 IP 每日上傳     |              1 GiB |
-| 邀請預設期限       |               7 天 |
-| 邀請期限範圍       |           1–365 天 |
-| 邀請預設額度       | 10 個檔案、300 MiB |
-| Invitation session |            12 小時 |
-| Admin session      |             4 小時 |
-| Admin 登入限流     |  每 IP 每分鐘 5 次 |
+| 項目               |              預設值 |
+| ------------------ | ------------------: |
+| 全站容量           |               3 GiB |
+| 單檔上限           |              50 MiB |
+| 檔案保存           |               90 天 |
+| 單次加入           |           10 個檔案 |
+| 同時上傳           |                2 個 |
+| 每 IP 每小時上傳   |             500 MiB |
+| 每 IP 每日上傳     |               1 GiB |
+| 邀請預設期限       |                7 天 |
+| 邀請期限範圍       |            1–365 天 |
+| 邀請預設額度       |  10 個檔案、300 MiB |
+| Invitation session |             12 小時 |
+| Admin session      |              4 小時 |
+| Admin 登入限流     |   每 IP 每分鐘 5 次 |
+| 邀請交換限流       |  每 IP 每分鐘 20 次 |
+| 公開單檔限流       | 每 IP 每分鐘 300 次 |
 
 ## 預設值的設計依據
 
@@ -116,12 +118,22 @@ UPLOAD_ACCESS_CODE
 
 ## Rate Limiting bindings
 
-| Binding                     | 限制         | Key                                      |
-| --------------------------- | ------------ | ---------------------------------------- |
-| `FILE_BROWSER_RATE_LIMITER` | 120 次／分鐘 | invitation/admin session principal       |
-| `ADMIN_LOGIN_RATE_LIMITER`  | 5 次／分鐘   | `CF-Connecting-IP`；本機使用固定開發 key |
+| Binding                            | 限制         | Key                                                   |
+| ---------------------------------- | ------------ | ----------------------------------------------------- |
+| `FILE_BROWSER_RATE_LIMITER`        | 120 次／分鐘 | invitation/admin session principal                    |
+| `ADMIN_LOGIN_RATE_LIMITER`         | 5 次／分鐘   | `CF-Connecting-IP`；本機使用固定開發 key              |
+| `INVITATION_EXCHANGE_RATE_LIMITER` | 20 次／分鐘  | `CF-Connecting-IP`；在 JSON 與 Turnstile 前執行       |
+| `PUBLIC_FILE_RATE_LIMITER`         | 300 次／分鐘 | `CF-Connecting-IP`；metadata、刪除、Worker 預覽與下載 |
 
-兩個 binding 必須使用不同 namespace。管理員登入限流在 Turnstile 與 `ADMIN_TOKEN` 比對之前執行，超限回覆 429 與中性訊息。
+所有 binding 必須使用不同 namespace。管理員登入與邀請交換限流都在 Turnstile 前執行；公開單檔限流則在 D1 與 R2 操作前執行。超限一律回覆 429 與 `Retry-After: 60`。CDN Custom Domain 的直接物件流量不經 Worker，仍須使用 Cloudflare WAF／Rate Limiting Rule 保護。
+
+## JSON request body
+
+會解析 JSON 的 mutation route 固定限制為 16 KiB，包含邀請交換、管理員登入、建立邀請與 upload reservation。上限同時處理 `Content-Length` 與串流 request body；超限回覆 413，格式錯誤回覆 400。Raw file `PUT` 不使用此限制，仍依 reservation 與 `MAX_FILE_BYTES` 驗證。
+
+## Session mutation Origin
+
+帶有 `jwander_admin_session` 或 `jwander_upload_session` Cookie 的 `POST`、`PUT`、`PATCH`、`DELETE`，`Origin` 必須與正規化後的 `UPLOAD_ORIGIN` 完全一致。一般同源瀏覽器要求不需額外操作；缺少 Origin、`Origin: null` 及其他子網域會在 session 與資料存取前回覆 403。沒有本系統 session Cookie 的公開 capability 仍依各端點原有的 Turnstile、Authorization 或匿名規則處理。
 
 ## 檔案政策
 

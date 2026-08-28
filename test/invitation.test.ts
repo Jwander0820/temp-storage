@@ -1,11 +1,18 @@
 import { env, exports } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createTestAdminSession, mockSuccessfulTurnstile, resetState } from "./helpers";
+import {
+  createTestAdminSession,
+  mockSuccessfulTurnstile,
+  resetState,
+  TEST_UPLOAD_ORIGIN,
+} from "./helpers";
 
 let adminHeaders = {
   Cookie: "",
   "Content-Type": "application/json",
+  Origin: TEST_UPLOAD_ORIGIN,
 };
+let invitationExchangeSequence = 0;
 
 async function createInvitation(options?: {
   maxFiles?: number;
@@ -48,7 +55,10 @@ async function exchange(
   const response = await exports.default.fetch(
     new Request("https://upload.example.test/api/invitations/exchange", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "CF-Connecting-IP": `198.51.100.${++invitationExchangeSequence}`,
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({ token, turnstileToken: "test-invitation-challenge", accessCode }),
     }),
   );
@@ -62,6 +72,7 @@ describe("upload invitations", () => {
     adminHeaders = {
       Cookie: await createTestAdminSession(),
       "Content-Type": "application/json",
+      Origin: TEST_UPLOAD_ORIGIN,
     };
     mockSuccessfulTurnstile();
   });
@@ -189,7 +200,11 @@ describe("upload invitations", () => {
     const reserve = await exports.default.fetch(
       new Request("https://upload.example.test/api/uploads/reserve", {
         method: "POST",
-        headers: { Cookie: cookie, "Content-Type": "application/json" },
+        headers: {
+          Cookie: cookie,
+          "Content-Type": "application/json",
+          Origin: TEST_UPLOAD_ORIGIN,
+        },
         body: JSON.stringify({
           filename: "blocked.txt",
           sizeBytes: 1,
@@ -309,6 +324,7 @@ describe("upload invitations", () => {
             "CF-Connecting-IP": `203.0.113.${suffix}`,
             "Content-Type": "application/json",
             Cookie: cookie,
+            Origin: TEST_UPLOAD_ORIGIN,
           },
           body: JSON.stringify({
             filename: `${suffix}.txt`,
@@ -357,6 +373,7 @@ describe("upload invitations", () => {
             "CF-Connecting-IP": `198.51.100.${suffix}`,
             "Content-Type": "application/json",
             Cookie: cookie,
+            Origin: TEST_UPLOAD_ORIGIN,
           },
           body: JSON.stringify({
             filename: `${suffix}.txt`,
@@ -557,6 +574,7 @@ describe("upload invitations", () => {
           "CF-Connecting-IP": "203.0.113.20",
           "Content-Type": "application/json",
           Cookie: firstSession.cookie,
+          Origin: TEST_UPLOAD_ORIGIN,
         },
         body: JSON.stringify({
           filename: "private.txt",
@@ -572,6 +590,7 @@ describe("upload invitations", () => {
         headers: {
           "Content-Length": "1",
           Cookie: secondSession.cookie,
+          Origin: TEST_UPLOAD_ORIGIN,
         },
         body: new Uint8Array([1]),
       }),
