@@ -41,6 +41,8 @@ QR Code 在瀏覽器內產生，不會將邀請 token 傳給第三方。管理 t
 
 `UPLOAD_ACCESS_CODE` 是選用的第二道共用驗證，不取代 invitation token。啟用後，持有邀請 URL 的人仍需在交換 session 時輸入 access code。
 
+交換流程依序完成 Turnstile、驗證 invitation token，再以 timing-safe comparison 驗證 access code，最後才建立 session。錯誤的 access code 與無效 invitation 使用完全相同的 403 回應；沒有有效 invitation 的請求不會進入 access code 驗證。
+
 不同分享對象應使用不同邀請；不再需要時立即撤銷。NFC 或 QR Code 只保存 `inviteUrl`，不得保存 `ADMIN_TOKEN` 或 Cloudflare secret。
 
 ## Admin API

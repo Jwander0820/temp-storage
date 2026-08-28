@@ -1,7 +1,7 @@
 # Cloudflare 環境與部署
 
 > 狀態：現行操作文件  
-> 最後更新：2026-08-27  
+> 最後更新：2026-08-28
 > 用途：建立或維護 Cloudflare 資源、Workers Builds 與正式部署
 
 日常部署優先透過 GitHub 與 Cloudflare Workers Builds 完成。只有重建環境、修復資源或自動部署無法使用時，才需要執行本文件中的手動命令。
@@ -16,8 +16,11 @@
 | R2                | `cdn` bucket，僅使用 `temp-storage/objects/` prefix |
 | R2 Custom Domain  | `https://cdn.jwander.net`                           |
 | D1                | `jwander-temp-storage-db`                           |
-| Migration         | `0001`–`0008`                                       |
+| Migration files   | `0001`–`0009`                                       |
+| 正式 migration    | `0009` 尚待正式套用與排程驗收                       |
 | Scheduled trigger | `0 * * * *`                                         |
+| Cloudflare Access | Admin paths 已設定，仍需完成部署後驗證              |
+| CDN 邊緣防護      | 文件已完成，Dashboard 規則尚待設定與驗證            |
 
 `cdn.jwander.net` 由既有 R2 Custom Domain 提供，不由 Worker 接管。Worker 只宣告 `upload.jwander.net`，且所有 R2 清理與 reconciliation 都必須限制在 `temp-storage/objects/`。
 
@@ -179,7 +182,16 @@ Health 預期回傳：
 
 ## 邊緣防護與成本護欄
 
-應在 Cloudflare Security rules 針對下列路徑建立 host-scoped WAF 或 Rate Limiting 規則，先以 Log 觀察，再決定 Block 或 Managed Challenge：
+完整免費額度、每操作估算、denial-of-wallet 情境與每月檢查表見
+[`../reference/cloudflare-free-tier-and-cost.md`](../reference/cloudflare-free-tier-and-cost.md)。
+可直接照著 Dashboard 操作的 CDN WAF、Cache、Rate Limiting、Budget Alert 與驗證步驟見
+[`cloudflare-edge-protection.md`](./cloudflare-edge-protection.md)。
+帳單或用量異常時的 CDN／Worker WAF Block、R2 Custom Domain 暫停與恢復順序見
+[`cloudflare-cost-incident-response.md`](./cloudflare-cost-incident-response.md)。
+
+應先用 Security Analytics 觀察正常流量，再在 Cloudflare Security rules 針對下列路徑建立
+host-scoped WAF Custom Rules。Free plan 的 Custom Rule 不提供 Log action，且唯一一條 Rate Limiting Rule
+只能使用 Path／Verified Bot、IP 與 10 秒週期，不能直接套用下列所有 Host／Method 條件：
 
 - `upload.jwander.net/api/invitations/exchange`
 - `upload.jwander.net/api/uploads/reserve`
@@ -187,4 +199,6 @@ Health 預期回傳：
 - `upload.jwander.net/api/admin/*`
 - `cdn.jwander.net/temp-storage/objects/*`
 
-影音 Range request 會產生多次正常請求，CDN 規則必須依 Security Events 調整，且不得影響同 bucket 其他 prefix。另建議開啟用量通知與低額 Budget Alert；通知不是硬性斷路器，緊急時以邀請撤銷、配額與 `UPLOADS_ENABLED=false` 控制風險。
+影音 Range request 會產生多次正常請求，CDN 規則必須依 Security Events 調整，且不得影響同 bucket
+其他 prefix。另建議開啟低額 Budget Alert；通知不是硬性斷路器，`UPLOADS_ENABLED=false` 也只停止新
+reservation。真正緊急止血應依 runbook 使用 WAF Block，必要時 Disable R2 Custom Domain。

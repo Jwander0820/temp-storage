@@ -1,7 +1,7 @@
 # 專案文件索引
 
 > 狀態：現行索引  
-> 最後更新：2026-08-27
+> 最後更新：2026-08-28
 
 這裡保存 Jwander Temp Storage 的現行架構、設計決策與開發流程。根目錄 `README.md` 負責快速啟動與部署入口；日常工作只依任務需要讀取下列現行文件。
 
@@ -9,16 +9,20 @@
 
 不要預讀全部文件，只開啟和目前任務直接相關的項目。
 
-| 任務                   | 文件                                                                             |
-| ---------------------- | -------------------------------------------------------------------------------- |
-| 理解系統、權限或資料流 | [`architecture/system-overview.md`](./architecture/system-overview.md)           |
-| 修改介面或互動         | [`design/ui-ux-guidelines.md`](./design/ui-ux-guidelines.md)                     |
-| 啟動與手動測試         | [`development/local-testing.md`](./development/local-testing.md)                 |
-| Cloudflare 資源與部署  | [`development/deployment.md`](./development/deployment.md)                       |
-| 建立或撤銷邀請         | [`development/invitation-management.md`](./development/invitation-management.md) |
-| 撰寫或拆分 commit      | [`development/commit-conventions.md`](./development/commit-conventions.md)       |
-| 查詢 API               | [`reference/api.md`](./reference/api.md)                                         |
-| 查詢限制與環境變數     | [`reference/configuration.md`](./reference/configuration.md)                     |
+| 任務                           | 文件                                                                                                     |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| 理解系統、權限或資料流         | [`architecture/system-overview.md`](./architecture/system-overview.md)                                   |
+| 修改介面或互動                 | [`design/ui-ux-guidelines.md`](./design/ui-ux-guidelines.md)                                             |
+| 啟動與手動測試                 | [`development/local-testing.md`](./development/local-testing.md)                                         |
+| Cloudflare 資源與部署          | [`development/deployment.md`](./development/deployment.md)                                               |
+| 設定 CDN、WAF 與成本防護       | [`development/cloudflare-edge-protection.md`](./development/cloudflare-edge-protection.md)               |
+| 處理帳單或用量突然暴增         | [`development/cloudflare-cost-incident-response.md`](./development/cloudflare-cost-incident-response.md) |
+| 建立或撤銷邀請                 | [`development/invitation-management.md`](./development/invitation-management.md)                         |
+| 修正 D1 metadata retention     | [`specifications/d1-metadata-retention-fix.md`](./specifications/d1-metadata-retention-fix.md)           |
+| 撰寫或拆分 commit              | [`development/commit-conventions.md`](./development/commit-conventions.md)                               |
+| 查詢 API                       | [`reference/api.md`](./reference/api.md)                                                                 |
+| 查詢限制與環境變數             | [`reference/configuration.md`](./reference/configuration.md)                                             |
+| 評估 Cloudflare 免費額度與成本 | [`reference/cloudflare-free-tier-and-cost.md`](./reference/cloudflare-free-tier-and-cost.md)             |
 
 ## 分類方式
 
@@ -94,6 +98,8 @@ Codex 的實際尋找順序與 scope 規則，以 [OpenAI 官方 AGENTS.md 文�
 
 - [`local-testing.md`](./development/local-testing.md)：完整本機手動測試流程。
 - [`deployment.md`](./development/deployment.md)：Cloudflare 資源、Workers Builds、secrets 與部署檢查。
+- [`cloudflare-edge-protection.md`](./development/cloudflare-edge-protection.md)：`cdn.jwander.net` 的 WAF、Cache、Rate Limiting、Budget Alert 與應變操作。
+- [`cloudflare-cost-incident-response.md`](./development/cloudflare-cost-incident-response.md)：Workers、D1 或 R2 用量／帳單異常時的止血、停用與恢復 runbook。
 - [`invitation-management.md`](./development/invitation-management.md)：管理頁、邀請 URL 與撤銷方式。
 - [`commit-conventions.md`](./development/commit-conventions.md)：Conventional Commits 與拆分原則。
 
@@ -101,10 +107,12 @@ Codex 的實際尋找順序與 scope 規則，以 [OpenAI 官方 AGENTS.md 文�
 
 - [`api.md`](./reference/api.md)：公開、invitation session 與 admin API 路由。
 - [`configuration.md`](./reference/configuration.md)：服務限制、非秘密 runtime 參數與 secret 名稱。
+- [`cloudflare-free-tier-and-cost.md`](./reference/cloudflare-free-tier-and-cost.md)：Workers、D1、R2 免費額度、容量換算、攻擊成本與應變護欄。
 
 ### Specifications
 
-- [`README.md`](./specifications/README.md)：進行中規格的狀態與封存方式；目前沒有進行中的規格。
+- [`README.md`](./specifications/README.md)：進行中規格的狀態與封存方式。
+- [`d1-metadata-retention-fix.md`](./specifications/d1-metadata-retention-fix.md)：修正 deleted files 與 reservation foreign key 清理順序。
 
 ### Archive
 
