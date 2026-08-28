@@ -4,7 +4,8 @@ import { DomainError } from "../domain/errors";
 import { uploadSessionMiddleware } from "../middleware/upload-session";
 import { getInvitationSummary } from "../repositories/invitation-repository";
 import {
-  exchangeInvitationToken,
+  createInvitationSession,
+  resolveInvitationToken,
   resolveInvitationSession,
   revokeCurrentInvitationSession,
 } from "../services/invitation-service";
@@ -78,15 +79,17 @@ export const invitationRoutes = new Hono<AppEnv>();
 invitationRoutes.post("/invitations/exchange", async (context) => {
   context.header("Cache-Control", "private, no-store");
   const input = parseExchangeInput(await context.req.json<unknown>());
-  await verifyOptionalAccessCode(context.env, input.accessCode);
   await verifyTurnstile(
     context.env,
     input.turnstileToken,
     context.req.header("CF-Connecting-IP") ?? "local-development",
     context.get("requestId"),
+    "invite",
   );
 
-  const { invitation, sessionExpiresAt } = await exchangeInvitationToken(context, input.token);
+  const invitation = await resolveInvitationToken(context, input.token);
+  await verifyOptionalAccessCode(context.env, input.accessCode);
+  const sessionExpiresAt = await createInvitationSession(context, invitation);
   const summary = await getInvitationSummary(context.env.DB, invitation.id);
   if (summary === null) {
     throw new DomainError("INTERNAL_ERROR", 500, "無法讀取邀請資料。");

@@ -129,16 +129,38 @@ export async function listFilesForCleanup(
   return result.results;
 }
 
-export async function purgeDeletedMetadata(database: D1Database, cutoff: number): Promise<number> {
-  const result = await database
-    .prepare(
-      `DELETE FROM files
-       WHERE status = 'deleted'
-         AND deleted_at <= ?1`,
-    )
-    .bind(cutoff)
-    .run();
-  return changes(result);
+export async function purgeDeletedMetadata(
+  database: D1Database,
+  cutoff: number,
+  limit: number,
+): Promise<number> {
+  const targetFilesSql = `
+    SELECT id
+    FROM files
+    WHERE status = 'deleted'
+      AND deleted_at <= ?1
+    ORDER BY deleted_at, id
+    LIMIT ?2
+  `;
+  const results = await database.batch([
+    database
+      .prepare(
+        `DELETE FROM upload_reservations
+         WHERE file_id IN (${targetFilesSql})`,
+      )
+      .bind(cutoff, limit),
+    database
+      .prepare(
+        `DELETE FROM files
+         WHERE id IN (${targetFilesSql})`,
+      )
+      .bind(cutoff, limit),
+  ]);
+  const deletedFiles = results[1];
+  if (deletedFiles === undefined) {
+    throw new DomainError("INTERNAL_ERROR", 500, "Metadata purge transaction was incomplete.");
+  }
+  return changes(deletedFiles);
 }
 
 export interface AdminFileFilter {

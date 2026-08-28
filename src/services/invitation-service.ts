@@ -27,10 +27,10 @@ function validateTokenShape(token: string): void {
   }
 }
 
-export async function exchangeInvitationToken(
+export async function resolveInvitationToken(
   context: Context<AppEnv>,
   token: string,
-): Promise<{ invitation: UploadInvitation; sessionExpiresAt: number }> {
+): Promise<UploadInvitation> {
   validateTokenShape(token);
   const now = Math.floor(Date.now() / 1000);
   const tokenHash = await invitationTokenHash(context.env.DELETE_TOKEN_PEPPER, token);
@@ -38,7 +38,14 @@ export async function exchangeInvitationToken(
   if (invitation === null) {
     throw new DomainError("INVITATION_INVALID", 403, "邀請連結無效或已過期。");
   }
+  return invitation;
+}
 
+export async function createInvitationSession(
+  context: Context<AppEnv>,
+  invitation: UploadInvitation,
+): Promise<number> {
+  const now = Math.floor(Date.now() / 1000);
   const sessionToken = randomToken(32);
   const sessionExpiresAt = Math.min(
     invitation.expires_at,
@@ -59,7 +66,7 @@ export async function exchangeInvitationToken(
     path: "/api/",
     maxAge: sessionExpiresAt - now,
   });
-  return { invitation, sessionExpiresAt };
+  return sessionExpiresAt;
 }
 
 export async function resolveInvitationSession(

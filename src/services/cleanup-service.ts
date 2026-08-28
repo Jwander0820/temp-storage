@@ -88,7 +88,11 @@ export async function runCleanup(
   }
 
   const [purgedMetadata, purgedInvitationSessions, purgedAdminSessions] = await Promise.all([
-    purgeDeletedMetadata(env.DB, now - config.deletedMetadataRetentionSeconds),
+    purgeDeletedMetadata(
+      env.DB,
+      now - config.deletedMetadataRetentionSeconds,
+      config.cleanupBatchLimit,
+    ),
     purgeExpiredSessions(env.DB, now),
     purgeExpiredAdminSessions(env.DB, now),
   ]);

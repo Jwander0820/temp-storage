@@ -91,7 +91,12 @@ export async function verifyOptionalAccessCode(
     return;
   }
 
-  if (providedCode === null || !(await timingSafeStringEqual(providedCode.trim(), expectedCode))) {
-    throw new DomainError("INVALID_REQUEST", 403, "上傳分享碼不正確。");
+  const normalizedCode = providedCode?.trim() ?? "";
+  if (
+    normalizedCode.length === 0 ||
+    normalizedCode.length > 512 ||
+    !(await timingSafeStringEqual(normalizedCode, expectedCode))
+  ) {
+    throw new DomainError("INVITATION_INVALID", 403, "邀請連結無效或已過期。");
   }
 }

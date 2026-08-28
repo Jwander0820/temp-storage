@@ -41,12 +41,15 @@ async function createInvitation(options?: {
   }>();
 }
 
-async function exchange(token: string): Promise<{ response: Response; cookie: string }> {
+async function exchange(
+  token: string,
+  accessCode?: string,
+): Promise<{ response: Response; cookie: string }> {
   const response = await exports.default.fetch(
     new Request("https://upload.example.test/api/invitations/exchange", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token, turnstileToken: "test-invitation-challenge" }),
+      body: JSON.stringify({ token, turnstileToken: "test-invitation-challenge", accessCode }),
     }),
   );
   const cookie = response.headers.get("Set-Cookie")?.split(";", 1)[0] ?? "";
@@ -64,7 +67,40 @@ describe("upload invitations", () => {
   });
 
   afterEach(() => {
+    env.UPLOAD_ACCESS_CODE = "";
     vi.restoreAllMocks();
+  });
+
+  it("checks a valid invitation before the optional access code", async () => {
+    env.UPLOAD_ACCESS_CODE = "second-secret";
+    const invitation = await createInvitation();
+    const invalidToken = "A".repeat(43);
+
+    const invalidWithWrongCode = await exchange(invalidToken, "wrong-code");
+    const invalidWithCorrectCode = await exchange(invalidToken, "second-secret");
+    expect(invalidWithWrongCode.response.status).toBe(403);
+    expect(invalidWithCorrectCode.response.status).toBe(403);
+    const invalidWithWrongCodeBody = await invalidWithWrongCode.response.json<{
+      error: { code: string; message: string };
+    }>();
+    const invalidWithCorrectCodeBody = await invalidWithCorrectCode.response.json<{
+      error: { code: string; message: string };
+    }>();
+    expect({
+      code: invalidWithWrongCodeBody.error.code,
+      message: invalidWithWrongCodeBody.error.message,
+    }).toEqual({
+      code: invalidWithCorrectCodeBody.error.code,
+      message: invalidWithCorrectCodeBody.error.message,
+    });
+
+    const validWithWrongCode = await exchange(invitation.token, "wrong-code");
+    expect(validWithWrongCode.response.status).toBe(403);
+    await expect(validWithWrongCode.response.json()).resolves.toMatchObject({
+      error: { code: "INVITATION_INVALID", message: "邀請連結無效或已過期。" },
+    });
+
+    expect((await exchange(invitation.token, "second-secret")).response.status).toBe(200);
   });
 
   it("creates a hashed invitation and exchanges it for a secure session", async () => {

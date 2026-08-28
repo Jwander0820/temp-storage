@@ -50,7 +50,7 @@ describe("Turnstile and optional access code", () => {
     ).resolves.toBeUndefined();
     await expect(
       verifyOptionalAccessCode({ UPLOAD_ACCESS_CODE: "second-secret" }, "wrong"),
-    ).rejects.toMatchObject({ code: "INVALID_REQUEST", status: 403 });
+    ).rejects.toMatchObject({ code: "INVITATION_INVALID", status: 403 });
     await expect(
       verifyOptionalAccessCode({ UPLOAD_ACCESS_CODE: "" }, null),
     ).resolves.toBeUndefined();
