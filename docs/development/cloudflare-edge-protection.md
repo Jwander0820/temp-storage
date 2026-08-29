@@ -1,257 +1,172 @@
-# Cloudflare CDN 邊緣防護與成本設定
+# Cloudflare R2 邊緣防護指南
 
-> 狀態：現行操作手冊
-> 最後更新：2026-08-28
-> 適用範圍：`cdn.jwander.net/temp-storage/objects/*`
-> 正式套用狀態：待在 Cloudflare Dashboard 設定並驗證
+> 狀態：公開操作原則
+> 最後更新：2026-08-29
+> 適用範圍：使用 Cloudflare Worker、R2 Custom Domain 與公開 CDN 的部署
 
-本文件提供可在 Cloudflare Dashboard 直接操作的基準設定，目的為降低公開 R2 Custom Domain 遭到
-cache-busting、非預期 method 或大量 cache miss 濫用時的 Class B 成本。免費額度換算與整體成本模型見
-[`../reference/cloudflare-free-tier-and-cost.md`](../reference/cloudflare-free-tier-and-cost.md)。
+本文件說明如何設計 R2 CDN 的 WAF、Cache、Rate Limiting、HTTPS 與成本護欄。它不記錄任何正式環境的
+Enabled／Disabled 狀態、實際門檻、告警金額、Security Events 或緊急封鎖規則；正式狀態應保存於不公開的
+Operations 紀錄。
 
-Cloudflare Dashboard 名稱可能調整；若畫面與本文不同，以連結的官方文件為準。所有規則都必須同時限制
-host 與 path prefix，因為 `cdn` bucket 也可能保存本專案以外的物件。
+免費額度與成本模型見
+[`../reference/cloudflare-free-tier-and-cost.md`](../reference/cloudflare-free-tier-and-cost.md)。Cloudflare
+Dashboard 名稱、方案限制與可用欄位可能調整，實際操作前應重新查閱官方文件並以帳號當下畫面為準。
 
-## 套用進度
+## 核心原則
 
-這份文件與建議值已完成，但不代表規則已存在於正式 zone。實際完成後逐項勾選：
+- 服務專屬規則必須限制 hostname 與必要的 path prefix，避免影響同 zone 或共用 bucket 的其他內容。
+- 所有變更一次只套用一項並立即驗證，保留可逆的回復方式。
+- WAF、Rate Limiting、Cache、Access 與應用程式授權處理不同風險，不能互相取代。
+- 不把 Budget Alert 當成 hard cap，也不以刪除 bucket、object、D1、Worker 或 DNS 作為日常止血方式。
+- 不在公開文件、log、issue 或截圖中保存 object key、invitation URL、token、Cookie、secret 或告警收件者。
 
-- [ ] `temp-storage CDN contract` WAF Custom Rule 已啟用並驗證。
-- [ ] Cache Rule 已啟用，inline 與 `download_only` cache 行為符合預期。
-- [ ] Smart Tiered Cache 已啟用。
-- [ ] Free Rate Limiting Rule 已依正常流量校正後啟用。
-- [ ] US$1、US$5 Budget Alerts 已建立；若帳號不提供此功能，已記錄原因。
-- [ ] `r2.dev` 已確認停用。
-- [ ] `upload.jwander.net` 與 `cdn.jwander.net` 的 HTTP 都會轉址到 HTTPS。
-- [ ] HSTS 已在不啟用 `includeSubDomains`／preload 的保守設定下驗證。
-- [ ] 設定後 24 小時與一週的觀察已完成。
+## 1. 限制 R2 公開入口
 
-## 上線前確認
+正式公開讀取應使用 R2 Custom Domain，讓請求經過目標 zone 的 WAF、Cache 與其他 edge controls。若已使用
+Custom Domain，Public Development URL `r2.dev` 應保持 Disabled，避免產生不受相同規則控制的第二入口。
 
-- `cdn.jwander.net` 已連接 R2 `cdn` bucket 的 Custom Domain。
-- Public Development URL `r2.dev` 已停用。
-- 本專案 object key 都位於 `temp-storage/objects/`。
-- 實際 inline preview URL 不需要 query string；GET、HEAD 與 Range request 可正常工作。
-- 準備一個可公開預覽的測試物件 URL，以及一個 `download_only` 物件供驗證。
+R2 Custom Domain 不會自動提供 bucket 根目錄 listing；仍需確認應用程式沒有把 `R2.list()` 結果當成
+匿名 API 回傳。S3 API credentials 是另一個管理入口，必須採最小權限並保存在 runtime secret 或受控工具，
+不能放進前端或 repository。
 
-R2 Custom Domain 才能使用 WAF 與 Cloudflare Cache；`r2.dev` 不提供同等控制。參考
-[R2 public buckets](https://developers.cloudflare.com/r2/buckets/public-buckets/) 與
-[R2 與 Cache 的互動](https://developers.cloudflare.com/cache/interaction-cloudflare-products/r2/)。
+參考 [R2 public buckets](https://developers.cloudflare.com/r2/buckets/public-buckets/)。
 
-R2 公開網域目前不提供 bucket 根目錄 listing，因此沒有額外的「listing 開關」需要啟用或關閉；仍需
-確認應用程式沒有自行暴露 `R2.list()` 結果，並保持 S3 API credentials 最小權限。
+## 2. 建立 HTTP contract WAF
 
-## 1. 建立 WAF contract rule
-
-前往目標 zone 的 **Security rules**，選擇 **Create rule → Custom rules**。建立：
-
-- Rule name：`temp-storage CDN contract`
-- Expression：
+先根據應用程式的真實協定定義 CDN 公開路徑，例如：
 
 ```text
-(http.host eq "cdn.jwander.net"
- and starts_with(http.request.uri.path, "/temp-storage/objects/")
- and (
-   (not http.request.method in {"GET" "HEAD"})
-   or http.request.uri.query ne ""
- ))
+host = <cdn-host>
+path starts with /<project-prefix>/
+allowed methods = GET, HEAD
+query string = 不使用時一律拒絕
+Range header = 允許
 ```
 
-- Action：`Block`
+若 object URL 不使用 signed query parameter，可在 WAF 拒絕所有 query string，降低 query cache-busting
+風險。若未來需要 query 授權，必須重新設計授權、cache key 與有效期，不能只把 query 從 cache key 忽略。
 
-這條規則只允許 GET／HEAD，並拒絕任何 query string。現行 object URL 不以 query 授權，因此阻擋 query
-比單純把 query 從 cache key 忽略更安全，也能直接阻止 `?a=1`、`?a=2` 製造不同 cache key。
+直接公開 R2 object 通常不需要 POST、PUT 或 DELETE；這些 method 應由 Worker、S3 API 或其他已授權入口
+處理。不要封鎖 `Range` header，因為圖片、音訊與影片預覽可能依賴 Range request。
 
-不要封鎖 `Range` header；圖片、音訊與影片預覽可能需要 Range。若未來真的需要 signed query parameter，
-必須先重新設計 cache key 與授權模型，不可直接停用這條規則。
+同一 zone 若有多個網站，可另建立常見敏感路徑探測規則，阻擋 `.env`、`.git`、錯誤暴露的設定檔或開發
+工具入口。這類規則只會保護經過 Cloudflare proxy 的 hostname，且必須先確認沒有同名合法路徑。
 
-建立方式參考 [Create a custom rule](https://developers.cloudflare.com/waf/custom-rules/create-dashboard/)。Free
-plan 可用規則數有限，這裡將 method 與 query contract 合併為一條。
+參考 [Create a custom rule](https://developers.cloudflare.com/waf/custom-rules/create-dashboard/)。
 
-## 2. 建立 Cache Rule
+## 3. 讓 Cache 尊重 origin policy
 
-前往 **Caching → Cache Rules → Create rule**，建立：
+公開 CDN path 可設為 Eligible for cache，但不應用 Edge TTL 強制覆蓋 origin `Cache-Control`：
 
-- Rule name：`temp-storage inline preview cache`
-- Match expression：
-
-```text
-(http.host eq "cdn.jwander.net"
- and starts_with(http.request.uri.path, "/temp-storage/objects/"))
-```
-
-- Cache eligibility：`Eligible for cache`
-- Edge TTL：不要設定「忽略 origin Cache-Control」的固定 TTL。
+- Edge TTL：Respect origin Cache-Control。
 - Browser TTL：保留 origin 設定。
-- Cache key：維持預設；因為 WAF 已拒絕 query string，不需要另設 Ignore Query String。
+- Cache key：維持預設，除非已完成授權與 query 行為設計。
+- 不強制快取 `private` 或 `no-store`。
 
-本專案由 R2 object metadata 決定可否 cache：inline preview 回應應是 `public, max-age=3600`；
-`download_only` 應是 `private, no-store`。Cache Rule 只把符合路徑的回應列為可快取候選，不能用 Edge TTL
-強制覆蓋 `private` 或 `no-store`，否則可能把只應下載的內容錯誤公開快取。
+應用程式可以讓安全 inline preview 回傳 public cache policy，而 download-only、需要授權或不可共用的內容
+回傳 `private, no-store`。Cache Rule 只決定回應是否具備快取資格，不能取代應用程式的資料分類與授權。
 
-設定說明參考 [Cache Rules settings](https://developers.cloudflare.com/cache/how-to/cache-rules/settings/)、
+R2 刪除具有強一致性，但 edge 已快取內容可能保留到 TTL 到期。需要立即失效時，應 purge 單一完整 URL；
+大量或日常刪除仍必須走應用程式的 metadata 與 object 生命週期，不能直接從 Dashboard 刪 object 取代。
+
+參考 [Cache Rules settings](https://developers.cloudflare.com/cache/how-to/cache-rules/settings/)、
 [Cache-Control directives](https://developers.cloudflare.com/cache/concepts/cache-control/) 與
-[Custom cache keys](https://developers.cloudflare.com/cache/how-to/cache-keys/)。
+[R2 consistency](https://developers.cloudflare.com/r2/reference/consistency/)。
 
-### 刪除後的 cache 注意事項
+## 4. 使用 Smart Tiered Cache
 
-R2 刪除具有強一致性，但已快取在 Cloudflare edge 的舊內容可能保留到 TTL 到期。現行 inline preview
-TTL 最長約一小時；若個案要求立刻失效，需在 Cloudflare Cache 中 purge 該 CDN 完整 URL。大量或日常刪除
-仍應由網站管理頁執行，不能以 R2 Dashboard 刪檔或 cache purge 取代應用程式的 D1 生命週期更新。
+若目前方案提供 Smart Tiered Cache，可使用 Smart topology，讓多個 edge location 共用 upper-tier miss，減少
+直接回源 R2 的 Class B operations。不要在未確認費用前啟用 Regional、Custom 或其他付費 topology。
 
-參考 [R2 consistency and caching](https://developers.cloudflare.com/r2/reference/consistency/)。
+參考 [Enable Tiered Cache](https://developers.cloudflare.com/cache/how-to/tiered-cache/)。
 
-## 3. 啟用 Smart Tiered Cache
+## 5. 校正 Rate Limiting
 
-前往 **Caching → Tiered Cache**：
+Rate Limiting Rule 應先從 Security Analytics 取得正常尖峰，再決定 hostname、path、計數特徵、週期與門檻。
+公開文件不保存正式門檻，因為它會隨檔案數量、影音 Range、共享 NAT、快取行為與使用模式改變。
 
-1. 啟用 Tiered Cache。
-2. Topology 選擇 `Smart Tiered Cache`。
+設定前必須確認帳號方案實際支援：
 
-這讓多個 edge location 的 miss 優先由 upper tier 共用，減少直接回源 R2 的 Class B operations。Free plan
-可使用 Smart topology。設定方式參考
-[Enable Tiered Cache](https://developers.cloudflare.com/cache/how-to/tiered-cache/)。
+- expression 可使用哪些欄位；
+- counting characteristic 與 period；
+- 是否能排除 cached assets；
+- action 與 mitigation timeout；
+- 可建立的規則數量。
 
-## 4. 建立唯一一條免費 Rate Limiting Rule
+如果 cache hit 也會計數，影音 Range、多檔案並行載入與共享 NAT 都可能造成誤判。沒有足夠流量基準時，先
+保持 Disabled 或暫緩；啟用後觀察 Security Events，合法流量被擋時先停用規則，再依實際尖峰調整。
 
-Free plan 只有一條 zone-level rate limiting rule，而且目前有以下限制：
+不要對圖片或影片子資源使用 Managed Challenge，因為 `<img>`／`<video>` 無法可靠完成互動挑戰。
 
-- Rule expression 可使用 Path 與 Verified Bot，不能使用 Host 或 Method。
-- Counting characteristic 固定為 IP。
-- Counting period 為 10 秒。
-- 不能排除 cached assets，因此 cache hit 也會計數。
-
-若主要目標是避免 R2 Class B 帳單，仍可優先將唯一規則用於本專案專屬 path。先在
-**Security Analytics** 觀察正常流量尖峰，再前往
-**Security rules → Create rule → Rate limiting rules** 建立：
-
-- Rule name：`temp-storage CDN origin request limit`
-- Match expression：
-
-```text
-starts_with(http.request.uri.path, "/temp-storage/objects/")
-```
-
-- Counting characteristic：IP。
-- Counting period：`10 seconds`。
-- Baseline threshold：`50 requests / 10 seconds / IP`。
-- Action：`Block`。
-- Mitigation timeout：`10 seconds`。
-
-`50/10s/IP` 是把原先每分鐘 300 次換算成 Free plan 可用週期後的起始值，不是通用安全常數。因為 Free
-plan 會把 cache hit 也計入，影音 Range、多檔案並行載入、共享 NAT 與監控服務都有可能造成誤判。至少觀察
-一週 Security Events；若有誤判先停用 rate rule，再提高到 75 或 100 requests／10 秒。不要對圖片或影片
-子資源使用 Managed Challenge，因為 `<img>`／`<video>` 無法可靠完成互動挑戰。
-
-Rate Limiting expression 無法限制 Host 是 Free plan 的能力限制；本專案的
-`/temp-storage/objects/` 是 R2 專用 path，不應在 `upload.jwander.net` 出現。Host、Method 與 query contract
-仍由上一節的 WAF Custom Rule 精確限制。
-
-設定與方案限制參考 [Create a rate limiting rule](https://developers.cloudflare.com/waf/rate-limiting-rules/create-zone-dashboard/)、
+參考 [Create a rate limiting rule](https://developers.cloudflare.com/waf/rate-limiting-rules/create-zone-dashboard/)、
 [Rate limiting parameters](https://developers.cloudflare.com/waf/rate-limiting-rules/parameters/) 與
 [Find the correct rate limit](https://developers.cloudflare.com/waf/rate-limiting-rules/find-rate-limit/)。
 
-## 5. 開啟 Managed WAF 與 DDoS 基線
+## 6. DDoS、Managed WAF 與 Access
 
-在 **Security** 確認：
+HTTP DDoS protection 是基線能力，但不能阻止所有格式正常、成功讀取大量公開 object 的濫用。Managed WAF
+與可用 ruleset 依方案而異；Dashboard 只有升級入口時，不應為了符合文件而購買方案。
 
-- Free Managed Ruleset 已啟用。
-- HTTP DDoS protection 沒有被自訂規則繞過。
-- Security Events 可看到上述 custom rule 與 rate limiting rule 的命中。
+Security Analytics 與 Security Events 應能用來觀察 custom rule、rate limit 與異常來源。公開服務的管理面
+可以使用 Cloudflare Access，但只保護管理 path；不要讓一般首頁、邀請、檔案瀏覽、preview、download 或
+一般 API 經過 Access，除非產品明確要求所有使用者具有 Access identity。
 
-Cloudflare 自動 DDoS 防護不能取代 rate limit：格式正常且成功讀取大量公開 object 的濫用，未必會被辨識
-為 DDoS。Free plan 規則數與能力參考 [WAF overview](https://developers.cloudflare.com/waf/)。
+## 7. HTTPS 與 HSTS
 
-## 6. 強制 HTTPS 並保守啟用 HSTS
+先確認所有受影響 hostname 的 HTTPS、憑證、preview、download 與 Range 都正常，再啟用 HTTP → HTTPS
+轉址。HSTS 是長期瀏覽器承諾，只有完成整個 zone 的 HTTPS 盤點後才考慮 zone-wide `includeSubDomains`
+或 preload。
 
-先確認 `https://upload.jwander.net` 與 `https://cdn.jwander.net` 的憑證、預覽、下載及 Range request 都
-正常，再處理 HTTP 轉址：
+若只有部分 hostname 完成盤點，優先使用 hostname-scoped Response Header Transform Rule，從較短 Max Age
+開始觀察。不要在仍有 HTTP-only、DNS-only 或可能離開 Cloudflare 的子網域時啟用 zone-wide HSTS。
 
-- 若 `jwander.net` zone 的所有 host 都支援 HTTPS，可在 **SSL/TLS → Edge Certificates** 開啟
-  **Always Use HTTPS**。
-- 若仍有其他 HTTP-only host，不要開啟 zone-wide 選項；改用 Redirect Rule 只涵蓋
-  `upload.jwander.net` 與 `cdn.jwander.net`。
+參考 [Always Use HTTPS](https://developers.cloudflare.com/ssl/edge-certificates/additional-options/always-use-https/)、
+[HSTS](https://developers.cloudflare.com/ssl/edge-certificates/additional-options/http-strict-transport-security/) 與
+[Response Header Transform Rules](https://developers.cloudflare.com/rules/transform/response-header-modification/)。
 
-HTTP 轉址穩定後才啟用 HSTS。Cloudflare Dashboard 的 HSTS 設定是 zone 層級，會在該 zone 的 HTTPS
-回應送出 header；只有所有 `jwander.net` host 都已完成 HTTPS 盤點，且不會暫停 Cloudflare 或改回 DNS
-only 時，才使用 **SSL/TLS → Edge Certificates → HSTS**。初始建議：
+## 8. Budget Alert 與成本觀察
 
-- Max Age：1 個月。
-- `includeSubDomains`：Off。
-- Preload：Off。
+Pay-as-you-go 帳號若提供 Budget Alert，應依可接受損失與日常流量建立低額早期通知及較高事件通知。收件者
+必須由帳號管理員確認，不在公開文件記錄實際 email 或正式金額。
 
-若只準備好本服務的兩個 hostname，改在 **Rules → Transform Rules → Modify Response Header** 建立一條
-hostname-scoped 規則：
+Budget Alert 只有通知效果，不會自動停用 R2、Worker、D1 或 Custom Domain，而且用量處理與寄信可能延遲。
+真正的成本防護仍來自 cache、rate limit、應用程式配額及事先準備的可逆事故流程。
 
-```text
-http.host in {"upload.jwander.net" "cdn.jwander.net"}
-```
+參考 [Budget alerts](https://developers.cloudflare.com/billing/manage/budget-alerts/)。
 
-使用 **Set static** 設定 `Strict-Transport-Security: max-age=2592000`。這個值不含
-`includeSubDomains`／preload，不會把未盤點的其他 host 納入。至少觀察一個 Max Age 週期，並確認不會
-停用 Cloudflare、HTTPS、R2 Custom Domain 或有效憑證，再評估延長 Max Age。未完整盤點所有子網域前，
-不啟用 `includeSubDomains` 或 preload，避免其他服務被瀏覽器長期鎖死。
+## 9. 驗證模板
 
-參考 [Always Use HTTPS](https://developers.cloudflare.com/ssl/edge-certificates/additional-options/always-use-https/)
-、[HSTS](https://developers.cloudflare.com/ssl/edge-certificates/additional-options/http-strict-transport-security/)
-與 [Response Header Transform Rules](https://developers.cloudflare.com/rules/transform/response-header-modification/)。
-
-## 7. 建立低額 Budget Alerts
-
-前往 account-level **Manage Account → Billing → Billable Usage → Create budget alert**，至少建立：
-
-| Alert | 用途                                          |
-| ----: | --------------------------------------------- |
-|  US$1 | 早期通知，收到後當天檢查 R2 Class A／B 與流量 |
-|  US$5 | 事件升級，依下方緊急應變決定是否封鎖 CDN      |
-
-通知對象至少包含日常可立即處理事件的信箱。Budget Alert 只提供給 Pay-as-you-go 帳號；若 Dashboard
-沒有此選項，先確認 R2 subscription 與 billing profile。Alert 只有通知效果，不是 hard cap，也不會自動
-停用 R2 或 Custom Domain；用量資料按日處理，通知可能在超過門檻的隔天才到達。
-
-設定方式參考 [Budget alerts](https://developers.cloudflare.com/billing/manage/budget-alerts/) 與
-[Billing changelog](https://developers.cloudflare.com/changelog/product/billing/)。
-
-## 8. 驗證
-
-將 `$testUrl` 換成一個 inline preview 的完整 CDN URL，在 PowerShell 執行：
+使用不含 token、invitation 或私人 object key 的受控測試物件：
 
 ```powershell
-$testUrl = "https://cdn.jwander.net/temp-storage/objects/<test-object-key>"
+$testUrl = "https://<cdn-host>/<project-prefix>/<test-object-key>"
 curl.exe -I $testUrl
 curl.exe -I $testUrl
 curl.exe -I "$testUrl?cache-bust=1"
 curl.exe -I -X POST $testUrl
 curl.exe -I -H "Range: bytes=0-1023" $testUrl
-curl.exe -I http://upload.jwander.net/api/health
-curl.exe -I https://upload.jwander.net/api/health
-curl.exe -I http://cdn.jwander.net/temp-storage/objects/<test-object-key>
+curl.exe -I "https://<upload-host>/api/health"
 ```
 
-預期結果：
+依服務 contract 驗證：
 
-| 檢查                     | 預期                                                      |
-| ------------------------ | --------------------------------------------------------- |
-| 第一次與第二次 GET／HEAD | inline 物件由 `MISS` 轉為 `HIT` 或 `REVALIDATED`          |
-| 帶 query string          | Cloudflare edge 回 `403`，不應到 R2                       |
-| POST                     | Cloudflare edge 回 `403`                                  |
-| Range                    | 不被 WAF 阻擋；依物件與 cache 狀態回 `206` 或正常可讀回應 |
-| `download_only`          | 不應出現可重複使用的 public cache `HIT`                   |
-| HTTP upload/CDN URL      | 轉址到相同 host 的 HTTPS URL                              |
-| HTTPS upload/CDN URL     | HSTS 啟用後包含預期的 `Strict-Transport-Security` header  |
+| 檢查 | 預期 |
+| ---- | ---- |
+| GET／HEAD | 正常讀取；可快取內容後續為 HIT 或 REVALIDATED |
+| Query string | 不使用 query 的 CDN contract 應在 edge 拒絕 |
+| 非預期 method | 應在到達 R2 或 Worker 前拒絕 |
+| Range | 不被 WAF 誤擋，依內容回 206 或正常可讀回應 |
+| Private／download-only | 不成為可重複使用的 public cache HIT |
+| Security Events | 可看到受控阻擋測試，且一般頁面沒有誤擋 |
 
-另外在 Dashboard 檢查 Security Events、Cache Analytics 與 R2 Class B 指標。設定後 24 小時及一週各檢查一次，
-確認沒有合法流量誤判，也沒有大量 query 或 Range cache miss。
+每項 Dashboard 變更套用後立即執行最小驗證。全部完成後再觀察至少 24 小時與一週，確認 cache hit ratio、
+R2 operations、Worker／D1 用量及 Security Events 沒有異常。
 
-## 9. 誤判與緊急應變
+## 10. 事故處理的公開原則
 
-### 合法流量被擋
-
-1. 先停用 rate limiting rule，保留 method／query contract rule。
-2. 從 Security Events 確認命中 path、IP 聚合與 Range 行為。
-3. 提高 threshold 後重新啟用；Free plan 不能改用其他 counting characteristic。
-4. 只有確認前端真的使用 query string 時，才修改 query contract。
-
-R2 Class B、Workers、D1 或帳單異常上升時，依
-[`cloudflare-cost-incident-response.md`](./cloudflare-cost-incident-response.md) 執行。該文件包含可直接複製的
-CDN／Worker 緊急 WAF expressions、R2 Custom Domain 暫停步驟、`UPLOADS_ENABLED` 的能力邊界與恢復順序。
+- 先記錄告警時間、產品與用量斜率，再使用最小範圍的可逆 Block。
+- 區分 R2 Custom Domain、Worker route、D1 與上傳寫入，不一次停掉所有服務。
+- 優先停用或縮小規則；不要刪除 bucket、object、D1、Worker、DNS 或 Custom Domain configuration。
+- `r2.dev` 應在平時保持 Disabled，避免事故時存在繞過 Custom Domain 的公開入口。
+- 一次只恢復一層並立即驗證，事故結束後保留時間線、影響、費用與永久修正。
+- 完整正式規則、門檻、告警收件者與緊急操作順序只保存在私人 Operations runbook。

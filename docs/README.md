@@ -1,7 +1,7 @@
 # 專案文件索引
 
 > 狀態：現行索引  
-> 最後更新：2026-08-28
+> 最後更新：2026-08-29
 
 這裡保存 Jwander Temp Storage 的現行架構、設計決策與開發流程。根目錄 `README.md` 負責快速啟動與部署入口；日常工作只依任務需要讀取下列現行文件。
 
@@ -15,8 +15,7 @@
 | 修改介面或互動                 | [`design/ui-ux-guidelines.md`](./design/ui-ux-guidelines.md)                                             |
 | 啟動與手動測試                 | [`development/local-testing.md`](./development/local-testing.md)                                         |
 | Cloudflare 資源與部署          | [`development/deployment.md`](./development/deployment.md)                                               |
-| 設定 CDN、WAF 與成本防護       | [`development/cloudflare-edge-protection.md`](./development/cloudflare-edge-protection.md)               |
-| 處理帳單或用量突然暴增         | [`development/cloudflare-cost-incident-response.md`](./development/cloudflare-cost-incident-response.md) |
+| 設計 CDN、WAF 與成本防護       | [`development/cloudflare-edge-protection.md`](./development/cloudflare-edge-protection.md)               |
 | 建立或撤銷邀請                 | [`development/invitation-management.md`](./development/invitation-management.md)                         |
 | 修正 D1 metadata retention     | [`specifications/d1-metadata-retention-fix.md`](./specifications/d1-metadata-retention-fix.md)           |
 | 撰寫或拆分 commit              | [`development/commit-conventions.md`](./development/commit-conventions.md)                               |
@@ -98,8 +97,7 @@ Codex 的實際尋找順序與 scope 規則，以 [OpenAI 官方 AGENTS.md 文�
 
 - [`local-testing.md`](./development/local-testing.md)：完整本機手動測試流程。
 - [`deployment.md`](./development/deployment.md)：Cloudflare 資源、Workers Builds、secrets 與部署檢查。
-- [`cloudflare-edge-protection.md`](./development/cloudflare-edge-protection.md)：`cdn.jwander.net` 的 WAF、Cache、Rate Limiting、HTTPS／HSTS、Budget Alert 與應變操作。
-- [`cloudflare-cost-incident-response.md`](./development/cloudflare-cost-incident-response.md)：Workers、D1 或 R2 用量／帳單異常時的止血、停用與恢復 runbook。
+- [`cloudflare-edge-protection.md`](./development/cloudflare-edge-protection.md)：R2 Custom Domain 的 WAF、Cache、Rate Limiting、HTTPS／HSTS 與成本防護通用原則；不記錄正式環境門檻或狀態。
 - [`invitation-management.md`](./development/invitation-management.md)：管理頁、邀請 URL 與撤銷方式。
 - [`commit-conventions.md`](./development/commit-conventions.md)：Conventional Commits 與拆分原則。
 

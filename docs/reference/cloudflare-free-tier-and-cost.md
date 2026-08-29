@@ -207,19 +207,16 @@ key 修正方案見
 Rate Limiting binding 行為見
 [Workers Rate Limiting API](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/)。
 
-## 7. 事件應變順序
+## 7. 事件應變原則
 
-完整的五分鐘止血流程、可直接複製的 WAF expressions、R2 Custom Domain Disable 步驟與恢復順序見
-[`../development/cloudflare-cost-incident-response.md`](../development/cloudflare-cost-incident-response.md)。摘要如下：
+公開文件只保留通用判斷與可逆處理原則。正式環境的 WAF expressions、Rate Limiting 門檻、告警
+收件者、緊急規則與逐步恢復順序，應保存在 repository 外的私人 Operations runbook。
 
-1. 先看 Security Events、Workers requests、D1 row metrics、R2 Class A／B 與 cache status，判斷是
-   Worker 路徑、D1 aggregate 或 CDN cache miss。
-2. 對明確攻擊入口啟用 WAF Block；靜態媒體不要依賴 Managed Challenge。
-3. 將 `UPLOADS_ENABLED=false`，停止新的 reservation；這不會阻擋瀏覽、下載或已知 CDN URL。
-4. 撤銷遭濫用 invitation；必要時重新簽發其他 invitations。
-5. 若 R2 Class B 仍暴增，暫時 WAF block temp prefix，最嚴重時 Disable R2 Custom Domain。注意 `cdn`
-   是共用 bucket，停用會影響其他內容。
-6. Budget Alert 觸發後仍要人工處置；它不會自動關閉 Worker、D1 或 R2，而且通知可能延遲到隔天。
+1. 先比對 Security Events、Workers、D1、R2 與 cache 指標，辨識真正的成本來源。
+2. 優先對明確攻擊入口套用範圍最小、可快速撤銷的邊緣或應用層控制。
+3. 保留事件時間、指標與變更紀錄；文件或 issue 不應包含 token、object key 或 invitation URL。
+4. 恢復時一次只解除一層控制，並在每一步確認流量與成本沒有再次異常。
+5. Budget Alert 只是可能延遲的通知，不是 hard cap；收到告警後仍需人工判斷與處置。
 
 ## 8. 每月檢查表
 
