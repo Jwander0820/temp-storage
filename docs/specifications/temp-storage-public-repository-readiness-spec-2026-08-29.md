@@ -19,14 +19,14 @@
 | F-03 Turnstile local-only        | 已修正         | 非 local origin 與錯誤 secret 均在 Siteverify 前 fail closed                                                           |
 | F-04 CSP                         | 部分完成       | public URL origin/path allowlist 已完成；enforced header 仍等待 production 觀察或 owner 限期風險接受                   |
 | F-05 bindings／required secrets  | 已修正         | `secrets.required`、generated Env、optional supplement 與 `workers_dev: false` 已同步                                  |
-| F-06 CI／branch protection       | 程式庫部分完成 | workflow 已建立；2026-08-30 唯讀核對仍無 Actions run，Private 免費方案尚不可設定 protection，需推送驗證並於公開後啟用 |
+| F-06 CI／branch protection       | CI 已完成      | PR #1 的 `pnpm check` 已在 GitHub Actions 全綠；Private 免費方案尚不可設定 protection，需於公開後啟用               |
 | F-07 Cloudflare production state | 待人工核對     | 正式規則、門檻、告警收件者與即時狀態只記錄於私人 Operations 筆記                                                       |
 | F-08 前端 URL                    | 已修正         | download 與 preview scheme/origin/path/query 回歸測試通過                                                              |
 | F-09 reconciliation budget       | 已修正         | migration `0011` 保存 phase/cursor，超過單次頁數預算可跨 invocation 續跑                                               |
-| F-10 公開治理                    | 已完成本機檔案 | CI、SECURITY、CONTRIBUTING 與 README self-host／產品限制已新增；待遠端驗證                                             |
+| F-10 公開治理                    | 已完成         | CI、SECURITY、CONTRIBUTING 與 README self-host／產品限制已新增，並已透過 `develop` 的 PR #1 驗證                        |
 | 本機候選驗證                     | 已通過         | `pnpm check`：15 個測試檔、96 tests、typecheck、lint、client build 與 Worker dry-run 全綠；production audit 無已知漏洞 |
 
-使用者已明確決定保留既有 Git history；本次不執行 history rewrite。尚未取得 commit、push、remote migration、deploy、visibility 或 GitHub／Cloudflare Dashboard 變更授權。
+使用者已明確決定保留既有 Git history，並已授權將候選變更 commit、push 至 `develop` 及建立 PR #1；本次不執行 history rewrite、合併 `main`、remote migration、deploy、visibility 或額外 GitHub／Cloudflare Dashboard 變更。
 
 ## 1. 決策摘要
 
@@ -507,7 +507,7 @@ Repository visibility 切回 Private 不能撤回已被 clone 的原始碼，因
 - [x] TURNSTILE_TEST_MODE 非本機 fail closed。
 - [x] Wrangler required secrets 與生成 Env 型別無漂移。
 - [x] workers.dev 明確停用。
-- [ ] GitHub Actions 在候選 SHA 完整 pnpm check 全綠。
+- [x] GitHub Actions 在 PR #1 候選 SHA 完整 pnpm check 全綠。
 - [x] production dependency 無未接受 high／critical。
 - [x] SECURITY.md、CONTRIBUTING.md、README 公開邊界說明完成。
 - [ ] Cloudflare Access 路徑經正反向驗證。
