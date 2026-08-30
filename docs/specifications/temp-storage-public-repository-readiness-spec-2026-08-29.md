@@ -1,12 +1,12 @@
 # temp-storage 公開儲存庫準備與安全強化規格計畫書
 
-> 文件版本：1.1
+> 文件版本：1.2
 > 審查日期：2026-08-29
 > 實作進度更新：2026-08-30
 > 審查對象：[Jwander0820/temp-storage](https://github.com/Jwander0820/temp-storage)
 > 基準分支：main
 > 基準 commit：[6fb2ebd86e9ecf20b4f9d398cc4fa0b88962be5d](https://github.com/Jwander0820/temp-storage/commit/6fb2ebd86e9ecf20b4f9d398cc4fa0b88962be5d)
-> 文件性質：建議規格與執行計畫，不代表任何程式、Cloudflare 設定或 GitHub visibility 已被變更
+> 文件性質：公開準備規格、執行紀錄與後續監測清單
 
 ## 0. 實作進度（2026-08-30）
 
@@ -19,24 +19,24 @@
 | F-03 Turnstile local-only        | 已修正         | 非 local origin 與錯誤 secret 均在 Siteverify 前 fail closed                                                           |
 | F-04 CSP                         | 部分完成       | public URL origin/path allowlist 已完成；enforced header 仍等待 production 觀察或 owner 限期風險接受                   |
 | F-05 bindings／required secrets  | 已修正         | `secrets.required`、generated Env、optional supplement 與 `workers_dev: false` 已同步                                  |
-| F-06 CI／branch protection       | CI 已完成      | PR #1 的 `pnpm check` 已在 GitHub Actions 全綠；Private 免費方案尚不可設定 protection，需於公開後啟用               |
-| F-07 Cloudflare production state | 待人工核對     | 正式規則、門檻、告警收件者與即時狀態只記錄於私人 Operations 筆記                                                       |
+| F-06 CI／branch protection       | 已完成         | PR #1 與 merge commit 的 GitHub Actions 全綠；`main` 已要求 PR、`check` 與 conversation resolution                  |
+| F-07 Cloudflare production state | 已驗證         | 正式 deployment、D1 migration、Access 與 edge baseline 已核對；規則門檻與告警細節只記錄於私人 Operations 筆記       |
 | F-08 前端 URL                    | 已修正         | download 與 preview scheme/origin/path/query 回歸測試通過                                                              |
 | F-09 reconciliation budget       | 已修正         | migration `0011` 保存 phase/cursor，超過單次頁數預算可跨 invocation 續跑                                               |
 | F-10 公開治理                    | 已完成         | CI、SECURITY、CONTRIBUTING 與 README self-host／產品限制已新增，並已透過 `develop` 的 PR #1 驗證                        |
-| 本機候選驗證                     | 已通過         | `pnpm check`：15 個測試檔、96 tests、typecheck、lint、client build 與 Worker dry-run 全綠；production audit 無已知漏洞 |
+| 公開候選驗證                     | 已通過         | 本機與 GitHub Actions 的 `pnpm check` 全綠；production audit、CodeQL、Secret Scanning 與 Dependabot 無 open alerts     |
 
-使用者已明確決定保留既有 Git history，並已授權將候選變更 commit、push 至 `develop` 及建立 PR #1；本次不執行 history rewrite、合併 `main`、remote migration、deploy、visibility 或額外 GitHub／Cloudflare Dashboard 變更。
+使用者已明確決定保留既有 Git history，並已授權及完成 PR #1 合併、Cloudflare 自動 migration／deployment 與 repository 公開。未執行 history rewrite、手動重複 deployment 或例行 pepper 輪替。
 
 ## 1. 決策摘要
 
 ### 1.1 建議結論
 
-**建議公開，但採「修正後公開」，目前不要直接將 repository visibility 切成 Public。**
+**已依「修正後公開」方案完成 repository 公開。**
 
 本專案的架構、安全邊界、測試密度、文件完整度與 MIT 授權，已具備公開專案的良好基礎。重新檢視目前 main 與完整 Git 歷史後，沒有發現真實憑證、私鑰、個資或必須清洗歷史的內容。Cloudflare D1 UUID、R2 bucket 名稱、Worker 名稱、正式網域與 Turnstile site key 都屬識別資訊，不是可直接取得帳號權限的秘密。
 
-公開前仍有一項高優先資料一致性問題，以及數項中優先級的部署與治理缺口。建議完成本文件的 P0 公開閘門，取得一個全綠的候選 commit，再公開 repository。
+P0 資料一致性、部署與治理缺口已修正，候選 commit、merge commit、Cloudflare deployment 與公開後安全掃描均有全綠證據。後續工作改為 CSP 觀察與 T+24h／T+7 日監測，不再視為阻擋 repository 公開的前置缺口。
 
 ### 1.2 建議時程
 
@@ -510,12 +510,12 @@ Repository visibility 切回 Private 不能撤回已被 clone 的原始碼，因
 - [x] GitHub Actions 在 PR #1 候選 SHA 完整 pnpm check 全綠。
 - [x] production dependency 無未接受 high／critical。
 - [x] SECURITY.md、CONTRIBUTING.md、README 公開邊界說明完成。
-- [ ] Cloudflare Access 路徑經正反向驗證。
-- [ ] CDN WAF、Cache、Rate Limit、r2.dev、HTTPS／HSTS、nosniff 與 budget 狀態經驗證。
-- [ ] D1 0001–0011、Cron 與 R2 lifecycle 正式狀態已核對。
-- [ ] CSP 觀察完成，已強制或由 owner 明確接受限期內維持 Report-Only。
+- [x] Cloudflare Access 路徑經正反向驗證。
+- [x] CDN WAF、Cache、Rate Limit、r2.dev、HTTPS／HSTS、nosniff 與 budget 狀態經驗證。
+- [x] D1 0001–0011、Cron 與 R2 lifecycle 正式狀態已核對。
+- [x] Owner 接受公開時限期內維持 CSP Report-Only，持續進行 production 觀察。
 - [x] current tree 與 full history 秘密掃描無真實命中。
-- [ ] visibility、branch protection 與 GitHub security features 的 T-0 操作人已確認。
+- [x] Repository 已公開，`main` protection、Secret Scanning、Push Protection、Dependabot、CodeQL 與 Private Vulnerability Reporting 已啟用。
 - [ ] 公開後 T+24h／T+7d 監測責任與檢查項目已排定。
 
 ## 15. 最終建議
@@ -524,8 +524,8 @@ Repository visibility 切回 Private 不能撤回已被 clone 的原始碼，因
 
 因此建議採以下決策：
 
-> **先完成 F-01、F-03、F-05、F-06 與 Cloudflare production-state 驗證，再公開。**
-> 不需改寫 Git 歷史；不需把非秘密識別資訊移除；不應盲目重建使用者已完成的 Cloudflare 防護。
+> **F-01、F-03、F-05、F-06 與 Cloudflare production-state 驗證已完成，repository 已依核准流程公開。**
+> 不需改寫 Git 歷史；不需把非秘密識別資訊移除；後續依 T+24h／T+7 日清單監測 GitHub 與 Cloudflare。
 
 ## 16. 參考資料
 
