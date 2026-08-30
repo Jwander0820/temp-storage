@@ -10,6 +10,17 @@ export interface UploadRecord extends FileRecord {
   readonly quota_released_at: number | null;
 }
 
+const UPLOAD_RECORD_SELECT = `SELECT
+  f.*,
+  r.id AS reservation_id,
+  r.reserved_bytes,
+  r.status AS reservation_status,
+  r.expires_at AS reservation_expires_at,
+  r.quota_released_at
+FROM files f
+JOIN upload_reservations r ON r.file_id = f.id
+WHERE r.id = ?1`;
+
 function changes(result: D1Result): number {
   const value = result.meta.changes;
   return typeof value === "number" ? value : 0;
@@ -19,21 +30,7 @@ export async function getUploadRecord(
   database: D1Database,
   uploadId: string,
 ): Promise<UploadRecord | null> {
-  return database
-    .prepare(
-      `SELECT
-         f.*,
-         r.id AS reservation_id,
-         r.reserved_bytes,
-         r.status AS reservation_status,
-         r.expires_at AS reservation_expires_at,
-         r.quota_released_at
-       FROM files f
-       JOIN upload_reservations r ON r.file_id = f.id
-       WHERE r.id = ?1`,
-    )
-    .bind(uploadId)
-    .first<UploadRecord>();
+  return database.prepare(UPLOAD_RECORD_SELECT).bind(uploadId).first<UploadRecord>();
 }
 
 export async function claimUpload(
@@ -144,7 +141,7 @@ export interface CompleteUploadInput {
 export async function completeUpload(
   database: D1Database,
   input: CompleteUploadInput,
-): Promise<void> {
+): Promise<UploadRecord | null> {
   const results = await database.batch([
     database
       .prepare(
@@ -191,11 +188,14 @@ export async function completeUpload(
          AND status = 'uploading'`,
       )
       .bind(input.detectedMime, input.previewPolicy, input.deleteTokenHash, input.uploadId),
+    database.prepare(UPLOAD_RECORD_SELECT).bind(input.uploadId),
   ]);
 
-  if (!results.every((result) => changes(result) === 1)) {
+  if (!results.slice(0, 3).every((result) => changes(result) === 1)) {
     throw new DomainError("UPLOAD_FAILED", 500, "無法完成上傳帳本更新。");
   }
+
+  return (results[3]?.results[0] as UploadRecord | undefined) ?? null;
 }
 
 export async function listExpiredReservations(

@@ -186,13 +186,15 @@ uploadRoutes.put("/uploads/:uploadId", async (context) => {
     now,
     context.get("uploadInvitationId"),
   );
-  let objectStored = false;
+  let phase: "claimed" | "object_stored" | "ledger_committed" | "reservation_released" =
+    "claimed";
 
   try {
     const peeked = await peekStream(requestBody);
     const classification = classifyFile(peeked.prefix, claimed.extension, claimed.declared_mime);
     if (classification.previewPolicy === "blocked") {
       await releaseReservation(context.env.DB, uploadId, now, "rejected", "cancelled");
+      phase = "reservation_released";
       console.log(
         JSON.stringify({
           level: "info",
@@ -214,16 +216,13 @@ uploadRoutes.put("/uploads/:uploadId", async (context) => {
       classification.previewPolicy,
       config.mediaPreviewCacheSeconds,
     );
-    objectStored = true;
+    phase = "object_stored";
 
     if (stored.size !== claimed.reserved_bytes) {
-      await context.env.FILES.delete(claimed.object_key);
-      objectStored = false;
-      await releaseReservation(context.env.DB, uploadId, now, "failed", "cancelled");
       throw new DomainError("FILE_SIZE_MISMATCH", 400, "實際檔案大小與預留大小不符。");
     }
 
-    await completeUpload(context.env.DB, {
+    const active = await completeUpload(context.env.DB, {
       uploadId,
       sizeBytes: stored.size,
       detectedMime: classification.detectedMime,
@@ -231,9 +230,12 @@ uploadRoutes.put("/uploads/:uploadId", async (context) => {
       deleteTokenHash,
       now,
     });
-
-    const active = await getUploadRecord(context.env.DB, uploadId);
-    if (active === null) {
+    phase = "ledger_committed";
+    if (
+      active === null ||
+      active.status !== "active" ||
+      active.reservation_status !== "consumed"
+    ) {
       throw new DomainError("UPLOAD_FAILED", 500, "無法讀取已完成的檔案資料。");
     }
 
@@ -253,19 +255,59 @@ uploadRoutes.put("/uploads/:uploadId", async (context) => {
       deleteToken,
     });
   } catch (error) {
-    if (objectStored) {
-      await context.env.FILES.delete(claimed.object_key);
+    if (phase === "ledger_committed") {
+      console.error(
+        JSON.stringify({
+          level: "error",
+          event: "upload.post_commit_failed",
+          requestId: context.get("requestId"),
+          fileId: claimed.id,
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      );
+      throw error;
     }
-    await releaseReservation(context.env.DB, uploadId, now, "failed", "cancelled");
-    console.error(
-      JSON.stringify({
-        level: "error",
-        event: "upload.failed",
-        requestId: context.get("requestId"),
-        fileId: claimed.id,
-        message: error instanceof Error ? error.message : String(error),
-      }),
-    );
+    if (phase === "object_stored") {
+      try {
+        await context.env.FILES.delete(claimed.object_key);
+      } catch (rollbackError) {
+        console.error(
+          JSON.stringify({
+            level: "error",
+            event: "upload.rollback_object_failed",
+            requestId: context.get("requestId"),
+            fileId: claimed.id,
+            message: rollbackError instanceof Error ? rollbackError.message : String(rollbackError),
+          }),
+        );
+      }
+    }
+    if (phase !== "reservation_released") {
+      try {
+        await releaseReservation(context.env.DB, uploadId, now, "failed", "cancelled");
+      } catch (rollbackError) {
+        console.error(
+          JSON.stringify({
+            level: "error",
+            event: "upload.rollback_reservation_failed",
+            requestId: context.get("requestId"),
+            fileId: claimed.id,
+            message: rollbackError instanceof Error ? rollbackError.message : String(rollbackError),
+          }),
+        );
+      }
+    }
+    if (!(error instanceof DomainError && error.code === "FILE_TYPE_BLOCKED")) {
+      console.error(
+        JSON.stringify({
+          level: "error",
+          event: "upload.failed",
+          requestId: context.get("requestId"),
+          fileId: claimed.id,
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    }
     throw error;
   }
 });
