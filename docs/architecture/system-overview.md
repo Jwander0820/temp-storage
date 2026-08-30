@@ -2,7 +2,7 @@
 
 > 狀態：現行架構  
 > 最後更新：2026-08-28
-> 適用版本：D1 migrations `0001`–`0010`
+> 適用版本：D1 migrations `0001`–`0011`
 
 ## 1. 系統目標
 
@@ -162,13 +162,14 @@ Worker 提供的公開單檔 metadata、DeleteToken、預覽與下載會在 D1�
 - 移除建立超過 7 日、且 quota 已釋放的 failed／rejected 上傳 metadata。
 - 移除超過 30 日的已完成 cleanup 執行紀錄。
 - 移除超過 90 日、已無檔案或 reservation 關聯的撤銷／到期邀請及其 token、session 與額度事件。
-- 寫入 `cleanup_runs` 並輸出結構化事件 log。
+- 寫入 `cleanup_runs` 並輸出結構化事件 log；頂層錯誤會最佳努力終結為 `failed`，局部失敗依成功進度標成 `partial` 或 `failed`。
 
 每日 03:00 UTC 另外執行 reconciliation：
 
 - D1 顯示 active 但 R2 遺失的檔案標為 deleted。
 - R2 prefix 中沒有 D1 metadata 且超過安全等待時間的 orphan object 會被刪除。
-- D1 使用 `created_at + id` keyset cursor，R2 使用 list cursor，直到掃描完所有分頁。
+- D1 使用 `created_at + id` keyset cursor，R2 使用 list cursor。
+- 每次 invocation 只處理設定的頁數預算，並把 phase 與 cursor 寫入 `reconciliation_state`；下次從 checkpoint 接續，完成一輪後才清除 checkpoint。
 
 R2 Lifecycle Rule 對 `temp-storage/objects/` 提供 90 天漏刪保險，但不取代 Worker cleanup，也不更新 D1 帳本。
 
@@ -185,6 +186,7 @@ R2 Lifecycle Rule 對 `temp-storage/objects/` 提供 90 天漏刪保險，但不
 | `upload_sessions`          | Invitation 的短期 HttpOnly session hash 與撤銷狀態                            |
 | `admin_sessions`           | 管理員短期 HttpOnly session hash 與撤銷狀態                                   |
 | `cleanup_runs`             | 排程清理的開始、結果與錯誤統計                                                |
+| `reconciliation_state`     | D1／R2 reconciliation 的單例 phase 與續跑 cursor                              |
 
 Schema 只透過 `migrations/` 依序演進。不得修改已在正式環境套用的舊 migration；新增下一個編號並讓程式在 migration 前後的部署順序可預期。
 

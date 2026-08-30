@@ -33,6 +33,7 @@ export async function resetState(maxBytes = 3221225472): Promise<void> {
     env.DB.prepare("DELETE FROM upload_reservations"),
     env.DB.prepare("DELETE FROM rate_limit_events"),
     env.DB.prepare("DELETE FROM cleanup_runs"),
+    env.DB.prepare("DELETE FROM reconciliation_state"),
     env.DB.prepare("DELETE FROM files"),
     env.DB.prepare("DELETE FROM upload_invitations"),
     env.DB.prepare(

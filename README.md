@@ -12,6 +12,15 @@
 
 個人正式服務部署於 [upload.jwander.net](https://upload.jwander.net)，僅供持有有效邀請的使用者使用，不是公開上傳空間。
 
+這個 repository 是可自行部署的參考實作；上方服務是作者維運的獨立 instance，不會替 fork 提供帳號、儲存空間或支援。
+
+## 安全與產品邊界
+
+- 這不是端對端加密服務：營運者控制的 Worker 能處理檔案內容與 metadata。
+- 這不是永久備份、惡意程式掃描、內容審核或法規合規儲存服務。
+- 單檔預覽與下載 URL 是 bearer capability；知道仍有效的 URL，就能在沒有邀請 session 的情況下讀取該檔案。
+- 邀請、session、額度與到期清理降低誤用風險，但不能取代正式身分管理、資料分類或備份策略。
+
 ## 主要功能
 
 - 建立可命名、可撤銷、具期限與額度的邀請。
@@ -89,6 +98,19 @@ Production branch 為 `main`。推送至 `main` 後，由 Cloudflare Workers Bui
 
 Cloudflare resources、runtime secrets、Workers Builds 與手動備援流程見 [`docs/development/deployment.md`](./docs/development/deployment.md)。
 
+### Fork／self-host
+
+`wrangler.jsonc` 中的正式資源名稱與識別值屬於作者 instance，不可直接沿用。部署 fork 前，至少要建立並替換：
+
+- Worker 名稱、custom domain 與 `UPLOAD_ORIGIN`／`CDN_ORIGIN`
+- D1 database 名稱與 UUID
+- R2 bucket 名稱及只屬於該 instance 的 prefix／lifecycle
+- Turnstile site key 與所有 required secrets
+- Workers Rate Limiting namespace IDs
+- Cloudflare Access、WAF、Cache、DNS、告警及其他 Dashboard 設定
+
+不要把 pull request 或測試流程連到作者的 D1、R2 或 Cloudflare 帳號。完整自架邊界與部署順序見 [`docs/development/deployment.md`](./docs/development/deployment.md)。
+
 ## 文件
 
 完整文件入口：[`docs/README.md`](./docs/README.md)
@@ -111,3 +133,5 @@ Cloudflare resources、runtime secrets、Workers Builds 與手動備援流程見
 - 檔案操作限定 R2 `temp-storage/objects/`，不得影響共用 bucket 的其他內容。
 
 更完整的安全邊界、資料流與檔案生命週期見 [`docs/architecture/system-overview.md`](./docs/architecture/system-overview.md)。
+
+安全漏洞請依 [`SECURITY.md`](./SECURITY.md) 私下回報；貢獻流程與 production 邊界見 [`CONTRIBUTING.md`](./CONTRIBUTING.md)。

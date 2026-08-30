@@ -32,6 +32,7 @@ export interface AppConfig {
   readonly invitationHistoryRetentionSeconds: number;
   readonly reconcileMetadataLimit: number;
   readonly reconcileObjectLimit: number;
+  readonly reconcilePageBudget: number;
   readonly reconcileOrphanGraceSeconds: number;
   readonly uploadsEnabled: boolean;
   readonly uploadOrigin: string;
@@ -187,6 +188,7 @@ export function getConfig(env: Env): AppConfig {
       env.RECONCILE_OBJECT_LIMIT,
       "RECONCILE_OBJECT_LIMIT",
     ),
+    reconcilePageBudget: parsePositiveInteger(env.RECONCILE_PAGE_BUDGET, "RECONCILE_PAGE_BUDGET"),
     reconcileOrphanGraceSeconds: parseNonNegativeInteger(
       env.RECONCILE_ORPHAN_GRACE_SECONDS,
       "RECONCILE_ORPHAN_GRACE_SECONDS",

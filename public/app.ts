@@ -1,6 +1,7 @@
 import { limitUploadBatch } from "./upload-limits";
 import { createDefaultInvitationLabel } from "./invitation-label";
 import { createLatestRequestCoordinator } from "./latest-request";
+import { validatePublicFileUrls } from "./public-file-url";
 import QRCode from "qrcode";
 
 interface PublicConfig {
@@ -12,6 +13,7 @@ interface PublicConfig {
   readonly maxFilesPerBatch: number;
   readonly maxParallelUploads: number;
   readonly sessionTtlSeconds: number;
+  readonly cdnOrigin: string;
 }
 
 interface StorageUsage {
@@ -364,6 +366,7 @@ function parseConfig(value: unknown): PublicConfig {
     maxFilesPerBatch: requiredNumber(value, "maxFilesPerBatch"),
     maxParallelUploads: requiredNumber(value, "maxParallelUploads"),
     sessionTtlSeconds: requiredNumber(value, "sessionTtlSeconds"),
+    cdnOrigin: requiredString(value, "cdnOrigin"),
   };
 }
 
@@ -412,14 +415,26 @@ function parsePublicFile(value: unknown): PublicFile {
   ) {
     throw new Error("Invalid preview response.");
   }
+  const id = requiredString(value, "id");
+  if (config === null) {
+    throw new Error("File URL policy is unavailable.");
+  }
+  const urls = validatePublicFileUrls({
+    id,
+    previewPolicy,
+    previewUrl,
+    downloadUrl: requiredString(value, "downloadUrl"),
+    uploadOrigin: window.location.origin,
+    cdnOrigin: config.cdnOrigin,
+  });
   return {
-    id: requiredString(value, "id"),
+    id,
     filename: requiredString(value, "filename"),
     sizeBytes: requiredNumber(value, "sizeBytes"),
     detectedMime: requiredString(value, "detectedMime"),
     previewPolicy,
-    previewUrl,
-    downloadUrl: requiredString(value, "downloadUrl"),
+    previewUrl: urls.previewUrl,
+    downloadUrl: urls.downloadUrl,
     createdAt: requiredString(value, "createdAt"),
     expiresAt: requiredString(value, "expiresAt"),
   };
@@ -781,6 +796,7 @@ async function initializeFilesPage(): Promise<void> {
   filePage.classList.add("is-hidden");
   filesPage.classList.remove("is-hidden");
   filesWorkspace.classList.remove("is-hidden");
+  await loadConfig();
   adminSessionActive = await hasAdminCapability().catch(() => false);
   setNavigationMode(adminSessionActive);
   adminFilesNotice.classList.toggle("is-hidden", !adminSessionActive);
@@ -2008,6 +2024,7 @@ async function loadFilePage(fileId: string): Promise<void> {
   adminPage.classList.add("is-hidden");
   filePage.classList.remove("is-hidden");
   filePage.textContent = "正在取得檔案資訊…";
+  await loadConfig();
   adminSessionActive = await hasAdminCapability().catch(() => false);
   setNavigationMode(adminSessionActive);
 
@@ -2186,9 +2203,15 @@ if (window.location.pathname === "/admin" || window.location.pathname === "/admi
     adminGateMessage.textContent = error instanceof Error ? error.message : "管理頁載入失敗。";
   });
 } else if (window.location.pathname === "/files" || window.location.pathname === "/files/") {
-  void initializeFilesPage();
+  void initializeFilesPage().catch((error: unknown) => {
+    sharedFilesStatus.textContent =
+      error instanceof Error ? error.message : "無法載入檔案清單設定。";
+    retrySharedFilesButton.classList.remove("is-hidden");
+  });
 } else if (filePageMatch?.[1] !== undefined) {
-  void loadFilePage(decodeURIComponent(filePageMatch[1]));
+  void loadFilePage(decodeURIComponent(filePageMatch[1])).catch((error: unknown) => {
+    filePage.textContent = error instanceof Error ? error.message : "無法載入檔案資訊。";
+  });
 } else {
   void initializeUploadPage().catch((error: unknown) => {
     inviteGateTitle.textContent = "邀請驗證失敗";

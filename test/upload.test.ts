@@ -165,6 +165,289 @@ describe("upload, preview, download, and delete", () => {
     expect(usage).toEqual({ used_bytes: 0, reserved_bytes: 0 });
   });
 
+  it("keeps the committed object and ledger when response finalization fails", async () => {
+    const bytes = new Uint8Array([0xff, 0xd8, 0xff, 0x11, 0x22, 0xd9]);
+    const reservation = await reserve("committed.jpg", bytes, "image/jpeg");
+    const reserved = await env.DB.prepare(
+      `SELECT f.object_key
+       FROM files f
+       JOIN upload_reservations r ON r.file_id = f.id
+       WHERE r.id = ?1`,
+    )
+      .bind(reservation.uploadId)
+      .first<{ object_key: string }>();
+
+    vi.spyOn(console, "log").mockImplementation((message?: unknown) => {
+      if (typeof message === "string" && message.includes('"event":"upload.completed"')) {
+        throw new Error("forced post-commit response failure");
+      }
+    });
+
+    const response = await exports.default.fetch(
+      new Request(`https://upload.example.test${reservation.uploadUrl}`, {
+        method: "PUT",
+        headers: {
+          "Content-Length": String(bytes.byteLength),
+          Cookie: sessionCookie,
+          Origin: TEST_UPLOAD_ORIGIN,
+        },
+        body: bytes,
+      }),
+    );
+
+    expect(response.status).toBe(500);
+    const state = await env.DB.prepare(
+      `SELECT f.status AS file_status, r.status AS reservation_status,
+              usage.used_bytes, usage.reserved_bytes
+       FROM files f
+       JOIN upload_reservations r ON r.file_id = f.id
+       JOIN storage_usage usage ON usage.id = 1
+       WHERE r.id = ?1`,
+    )
+      .bind(reservation.uploadId)
+      .first<{
+        file_status: string;
+        reservation_status: string;
+        used_bytes: number;
+        reserved_bytes: number;
+      }>();
+    expect(state).toEqual({
+      file_status: "active",
+      reservation_status: "consumed",
+      used_bytes: bytes.byteLength,
+      reserved_bytes: 0,
+    });
+    expect(await env.FILES.head(reserved?.object_key ?? "missing")).not.toBeNull();
+  });
+
+  it("rolls back the object and reservation when the ledger commit fails", async () => {
+    const bytes = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
+    const reservation = await reserve("commit-fails.jpg", bytes, "image/jpeg");
+    const reserved = await env.DB.prepare(
+      `SELECT f.object_key
+       FROM files f
+       JOIN upload_reservations r ON r.file_id = f.id
+       WHERE r.id = ?1`,
+    )
+      .bind(reservation.uploadId)
+      .first<{ object_key: string }>();
+    await env.DB.prepare(
+      `CREATE TRIGGER fail_upload_commit
+       BEFORE UPDATE OF status ON upload_reservations
+       WHEN NEW.status = 'consumed'
+       BEGIN
+         SELECT RAISE(ABORT, 'forced upload commit failure');
+       END`,
+    ).run();
+
+    try {
+      const response = await exports.default.fetch(
+        new Request(`https://upload.example.test${reservation.uploadUrl}`, {
+          method: "PUT",
+          headers: {
+            "Content-Length": String(bytes.byteLength),
+            Cookie: sessionCookie,
+            Origin: TEST_UPLOAD_ORIGIN,
+          },
+          body: bytes,
+        }),
+      );
+      expect(response.status).toBe(500);
+    } finally {
+      await env.DB.prepare("DROP TRIGGER IF EXISTS fail_upload_commit").run();
+    }
+
+    const state = await env.DB.prepare(
+      `SELECT f.status AS file_status, r.status AS reservation_status,
+              usage.used_bytes, usage.reserved_bytes
+       FROM files f
+       JOIN upload_reservations r ON r.file_id = f.id
+       JOIN storage_usage usage ON usage.id = 1
+       WHERE r.id = ?1`,
+    )
+      .bind(reservation.uploadId)
+      .first<{
+        file_status: string;
+        reservation_status: string;
+        used_bytes: number;
+        reserved_bytes: number;
+      }>();
+    expect(state).toEqual({
+      file_status: "failed",
+      reservation_status: "cancelled",
+      used_bytes: 0,
+      reserved_bytes: 0,
+    });
+    expect(await env.FILES.head(reserved?.object_key ?? "missing")).toBeNull();
+  });
+
+  it("does not classify a blocked type as a generic upload failure", async () => {
+    const bytes = new TextEncoder().encode("<!doctype html><script>alert(1)</script>");
+    const reservation = await reserve("blocked.jpg", bytes, "image/jpeg");
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const response = await exports.default.fetch(
+      new Request(`https://upload.example.test${reservation.uploadUrl}`, {
+        method: "PUT",
+        headers: {
+          "Content-Length": String(bytes.byteLength),
+          Cookie: sessionCookie,
+          Origin: TEST_UPLOAD_ORIGIN,
+        },
+        body: bytes,
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(errorLog.mock.calls.flat().join("\n")).not.toContain('"event":"upload.failed"');
+    const state = await env.DB.prepare(
+      `SELECT f.status AS file_status, r.status AS reservation_status
+       FROM files f
+       JOIN upload_reservations r ON r.file_id = f.id
+       WHERE r.id = ?1`,
+    )
+      .bind(reservation.uploadId)
+      .first<{ file_status: string; reservation_status: string }>();
+    expect(state).toEqual({ file_status: "rejected", reservation_status: "cancelled" });
+  });
+
+  it("releases the reservation when the R2 put fails", async () => {
+    const bytes = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
+    const reservation = await reserve("put-fails.jpg", bytes, "image/jpeg");
+    vi.spyOn(env.FILES, "put").mockRejectedValueOnce(new Error("forced R2 put failure"));
+
+    const response = await exports.default.fetch(
+      new Request(`https://upload.example.test${reservation.uploadUrl}`, {
+        method: "PUT",
+        headers: {
+          "Content-Length": String(bytes.byteLength),
+          Cookie: sessionCookie,
+          Origin: TEST_UPLOAD_ORIGIN,
+        },
+        body: bytes,
+      }),
+    );
+
+    expect(response.status).toBe(500);
+    const state = await env.DB.prepare(
+      `SELECT f.status AS file_status, r.status AS reservation_status,
+              usage.used_bytes, usage.reserved_bytes
+       FROM files f
+       JOIN upload_reservations r ON r.file_id = f.id
+       JOIN storage_usage usage ON usage.id = 1
+       WHERE r.id = ?1`,
+    )
+      .bind(reservation.uploadId)
+      .first<{
+        file_status: string;
+        reservation_status: string;
+        used_bytes: number;
+        reserved_bytes: number;
+      }>();
+    expect(state).toEqual({
+      file_status: "failed",
+      reservation_status: "cancelled",
+      used_bytes: 0,
+      reserved_bytes: 0,
+    });
+  });
+
+  it("releases quota and preserves the size error when R2 rollback deletion fails", async () => {
+    const bytes = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
+    const reservation = await reserve("size-mismatch.jpg", bytes, "image/jpeg");
+    const originalPut = env.FILES.put.bind(env.FILES);
+    vi.spyOn(env.FILES, "put").mockImplementationOnce(async (...args) => {
+      const stored = await originalPut(...args);
+      if (stored === null) {
+        throw new Error("Test setup could not store the R2 object.");
+      }
+      return new Proxy(stored, {
+        get(target, property, receiver) {
+          if (property === "size") {
+            return bytes.byteLength - 1;
+          }
+          return Reflect.get(target, property, receiver) as unknown;
+        },
+      });
+    });
+    vi.spyOn(env.FILES, "delete").mockRejectedValueOnce(new Error("forced R2 delete failure"));
+
+    const response = await exports.default.fetch(
+      new Request(`https://upload.example.test${reservation.uploadUrl}`, {
+        method: "PUT",
+        headers: {
+          "Content-Length": String(bytes.byteLength),
+          Cookie: sessionCookie,
+          Origin: TEST_UPLOAD_ORIGIN,
+        },
+        body: bytes,
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "FILE_SIZE_MISMATCH" },
+    });
+    const state = await env.DB.prepare(
+      `SELECT f.status AS file_status, r.status AS reservation_status,
+              usage.used_bytes, usage.reserved_bytes
+       FROM files f
+       JOIN upload_reservations r ON r.file_id = f.id
+       JOIN storage_usage usage ON usage.id = 1
+       WHERE r.id = ?1`,
+    )
+      .bind(reservation.uploadId)
+      .first<{
+        file_status: string;
+        reservation_status: string;
+        used_bytes: number;
+        reserved_bytes: number;
+      }>();
+    expect(state).toEqual({
+      file_status: "failed",
+      reservation_status: "cancelled",
+      used_bytes: 0,
+      reserved_bytes: 0,
+    });
+  });
+
+  it("preserves the upload error when reservation rollback also fails", async () => {
+    const bytes = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
+    const reservation = await reserve("rollback-fails.jpg", bytes, "image/jpeg");
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.spyOn(env.FILES, "put").mockRejectedValueOnce(new Error("root R2 put failure"));
+    vi.spyOn(env.DB, "batch").mockRejectedValueOnce(new Error("reservation rollback failure"));
+
+    const response = await exports.default.fetch(
+      new Request(`https://upload.example.test${reservation.uploadUrl}`, {
+        method: "PUT",
+        headers: {
+          "Content-Length": String(bytes.byteLength),
+          Cookie: sessionCookie,
+          Origin: TEST_UPLOAD_ORIGIN,
+        },
+        body: bytes,
+      }),
+    );
+
+    expect(response.status).toBe(500);
+    const logs = errorLog.mock.calls.flat().join("\n");
+    expect(logs).toContain('"event":"upload.rollback_reservation_failed"');
+    expect(logs).toContain('"message":"reservation rollback failure"');
+    expect(logs).toContain('"event":"upload.failed"');
+    expect(logs).toContain('"message":"root R2 put failure"');
+    expect(logs).toContain('"event":"request.failed"');
+    const state = await env.DB.prepare(
+      `SELECT f.status AS file_status, r.status AS reservation_status
+       FROM files f
+       JOIN upload_reservations r ON r.file_id = f.id
+       WHERE r.id = ?1`,
+    )
+      .bind(reservation.uploadId)
+      .first<{ file_status: string; reservation_status: string }>();
+    expect(state).toEqual({ file_status: "uploading", reservation_status: "reserved" });
+  });
+
   it("deletes idempotently with the one-time delete token", async () => {
     const bytes = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
     const { result } = await upload("delete-me.jpg", bytes, "image/jpeg");

@@ -8,6 +8,7 @@ interface TurnstileBindings {
 }
 
 const OFFICIAL_ALWAYS_PASS_TEST_SECRET = "1x0000000000000000000000000000000AA";
+const LOCAL_TEST_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
 interface AccessCodeBindings {
   readonly UPLOAD_ACCESS_CODE?: string;
@@ -29,6 +30,14 @@ function isTurnstileResult(value: unknown): value is TurnstileResult {
   );
 }
 
+function isLocalTestOrigin(origin: string): boolean {
+  try {
+    return LOCAL_TEST_HOSTNAMES.has(new URL(origin).hostname);
+  } catch {
+    return false;
+  }
+}
+
 export async function verifyTurnstile(
   env: TurnstileBindings,
   token: string,
@@ -38,6 +47,15 @@ export async function verifyTurnstile(
 ): Promise<void> {
   if (token.length === 0 || token.length > 2048) {
     throw new DomainError("TURNSTILE_FAILED", 403, "人機驗證失敗，請重新操作。");
+  }
+
+  const testModeRequested = env.TURNSTILE_TEST_MODE === "true";
+  if (
+    testModeRequested &&
+    (env.TURNSTILE_SECRET_KEY !== OFFICIAL_ALWAYS_PASS_TEST_SECRET ||
+      !isLocalTestOrigin(env.UPLOAD_ORIGIN))
+  ) {
+    throw new DomainError("INTERNAL_ERROR", 500, "人機驗證設定無效。");
   }
 
   let response: Response;
@@ -58,9 +76,7 @@ export async function verifyTurnstile(
 
   const payload: unknown = await response.json<unknown>();
   const expectedHostname = new URL(env.UPLOAD_ORIGIN).hostname;
-  const officialTestMode =
-    env.TURNSTILE_TEST_MODE === "true" &&
-    env.TURNSTILE_SECRET_KEY === OFFICIAL_ALWAYS_PASS_TEST_SECRET;
+  const officialTestMode = testModeRequested;
   if (
     !response.ok ||
     !isTurnstileResult(payload) ||

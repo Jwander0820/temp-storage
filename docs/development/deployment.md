@@ -1,26 +1,26 @@
 # Cloudflare 環境與部署
 
 > 狀態：現行操作文件  
-> 最後更新：2026-08-28
+> 最後更新：2026-08-29
 > 用途：建立或維護 Cloudflare 資源、Workers Builds 與正式部署
 
 日常部署優先透過 GitHub 與 Cloudflare Workers Builds 完成。只有重建環境、修復資源或自動部署無法使用時，才需要執行本文件中的手動命令。
 
 ## 正式環境
 
-| 項目              | 現況                                                |
-| ----------------- | --------------------------------------------------- |
-| Production branch | `main`                                              |
-| Worker            | `jwander-temp-storage`                              |
-| 公開入口          | `https://upload.jwander.net`                        |
-| R2                | `cdn` bucket，僅使用 `temp-storage/objects/` prefix |
-| R2 Custom Domain  | `https://cdn.jwander.net`                           |
-| D1                | `jwander-temp-storage-db`                           |
-| Migration files   | `0001`–`0010`                                       |
-| 正式 migration    | `0009`–`0010` 尚待正式套用與排程驗收                |
-| Scheduled trigger | `0 * * * *`                                         |
-| Cloudflare Access | Admin paths 已設定，仍需完成部署後驗證              |
-| CDN 邊緣防護      | 文件已完成，Dashboard 規則尚待設定與驗證            |
+| 項目              | 現況                                                      |
+| ----------------- | --------------------------------------------------------- |
+| Production branch | `main`                                                    |
+| Worker            | `jwander-temp-storage`                                    |
+| 公開入口          | `https://upload.jwander.net`                              |
+| R2                | `cdn` bucket，僅使用 `temp-storage/objects/` prefix       |
+| R2 Custom Domain  | `https://cdn.jwander.net`                                 |
+| D1                | `jwander-temp-storage-db`                                 |
+| Migration files   | `0001`–`0011`                                             |
+| 正式 migration    | 以 Cloudflare deployment log 為準；公開文件不記錄線上狀態 |
+| Scheduled trigger | `0 * * * *`                                               |
+| Cloudflare Access | 只允許保護 Admin paths；線上狀態記錄於私人 Operations     |
+| CDN 邊緣防護      | 設計原則見公開指南；線上規則與門檻不放在 repository       |
 
 `cdn.jwander.net` 由既有 R2 Custom Domain 提供，不由 Worker 接管。Worker 只宣告 `upload.jwander.net`，且所有 R2 清理與 reconciliation 都必須限制在 `temp-storage/objects/`。
 
@@ -150,6 +150,7 @@ pnpm run deploy:cloudflare
 - `ADMIN_LOGIN_RATE_LIMITER` binding 已部署，且 namespace 未與其他 limiter 共用。
 - `UPLOAD_MUTATION_RATE_LIMITER` binding 已部署為 namespace `1005`，且 reserve／PUT 的正常流量不會誤觸 429。
 - 新 migration 已完成驗證並可安全依序套用。
+- `0011_reconciliation_checkpoint.sql` 必須先於使用分段 reconciliation 的 Worker 版本套用。
 - `cdn.jwander.net` 仍由 R2 Custom Domain 提供，`r2.dev` 保持關閉。
 - R2 Lifecycle Rule 只涵蓋 `temp-storage/objects/`。
 - Worker route 只接管 `upload.jwander.net`。
@@ -189,24 +190,21 @@ hostname 的 HTTPS 盤點前，不使用 zone-wide HSTS；改用只匹配 `uploa
 
 ## ADMIN_TOKEN 疑似外洩
 
-1. 輪替 Cloudflare Worker secret `ADMIN_TOKEN`。
-2. 通過 Cloudflare Access，以新 token 建立 admin session。
-3. 在管理頁執行「登出所有管理裝置」。
-4. 檢查邀請狀態、檔案刪除與其他管理操作。
-5. 檢查 Cloudflare／Worker logs；不得複製或輸出 Authorization、Cookie、Turnstile token 或 Access cookie。
+立即輪替受影響的 Worker secret、撤銷既有管理 session，並檢查 Cloudflare／Worker logs 與管理操作。不得
+複製或輸出 Authorization、Cookie、Turnstile token 或 Access cookie。正式恢復順序、操作者與事故時間線
+只記錄於私人 Operations runbook。
 
 ## 邊緣防護與成本護欄
 
 完整免費額度、每操作估算、denial-of-wallet 情境與每月檢查表見
 [`../reference/cloudflare-free-tier-and-cost.md`](../reference/cloudflare-free-tier-and-cost.md)。
-可直接照著 Dashboard 操作的 CDN WAF、Cache、Rate Limiting、Budget Alert 與驗證步驟見
+公開的 CDN WAF、Cache、Rate Limiting、Budget Alert 與驗證原則見
 [`cloudflare-edge-protection.md`](./cloudflare-edge-protection.md)。
-帳單或用量異常時的 CDN／Worker WAF Block、R2 Custom Domain 暫停與恢復順序見
-[`cloudflare-cost-incident-response.md`](./cloudflare-cost-incident-response.md)。
+正式規則、門檻、告警與事故恢復順序只保存於 repository 外的私人 Operations 紀錄。
 
 應先用 Security Analytics 觀察正常流量，再在 Cloudflare Security rules 針對下列路徑建立
-host-scoped WAF Custom Rules。Free plan 的 Custom Rule 不提供 Log action，且唯一一條 Rate Limiting Rule
-只能使用 Path／Verified Bot、IP 與 10 秒週期，不能直接套用下列所有 Host／Method 條件：
+host-scoped WAF Custom Rules。方案可用欄位、規則數、計數特徵與週期可能調整，必須以帳號當下 Dashboard
+與官方文件為準，不把公開文件中的範例當成已套用的正式設定：
 
 - `upload.jwander.net/api/invitations/exchange`
 - `upload.jwander.net/api/uploads/reserve`
@@ -215,5 +213,5 @@ host-scoped WAF Custom Rules。Free plan 的 Custom Rule 不提供 Log action，
 - `cdn.jwander.net/temp-storage/objects/*`
 
 影音 Range request 會產生多次正常請求，CDN 規則必須依 Security Events 調整，且不得影響同 bucket
-其他 prefix。另建議開啟低額 Budget Alert；通知不是硬性斷路器，`UPLOADS_ENABLED=false` 也只停止新
-reservation。真正緊急止血應依 runbook 使用 WAF Block，必要時 Disable R2 Custom Domain。
+其他 prefix。另建議依可接受損失開啟低額 Budget Alert；通知不是硬性斷路器，`UPLOADS_ENABLED=false`
+也只停止新 reservation。真正緊急止血必須依私人 runbook 逐項執行與驗證。

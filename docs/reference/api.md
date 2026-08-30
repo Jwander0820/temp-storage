@@ -22,6 +22,7 @@ HEAD   /d/:fileId
 ```
 
 - `POST /api/invitations/exchange` 以 invitation token、Turnstile token 與選用 access code 交換 HttpOnly invitation session；在 JSON parsing 與 Turnstile 前先套用每 IP 每分鐘 20 次限流。
+- `GET /api/config` 回傳前端需要的非秘密限制、Turnstile site key 與 `cdnOrigin`；前端以目前頁面 origin 驗證 download URL，並以 `cdnOrigin` 驗證 preview URL。
 - `GET /api/session/capabilities` 只回傳 `{ "admin": boolean }`，供公開頁面決定是否顯示管理操作；它不受 Cloudflare Access 保護，也不是授權依據。
 - `DELETE /api/files/:fileId` 使用一次性 `DeleteToken` capability。
 - `/p/:fileId` 是 Worker 預覽 fallback。
@@ -89,6 +90,8 @@ DELETE /api/admin/files/:fileId
 - `limit`：最大 100
 
 建立邀請時可設定 label、期限、`canUpload`、檔案數與容量。`copy` 會為同一邀請新增等效連結，不撤銷舊連結或 session；`reissue` 則會使全部舊連結與相關 session 失效。明文 invitation token 只在建立、複製或重新簽發時回傳一次；D1 只保存 hash。
+
+`POST /api/admin/reconcile` 每次只處理 `RECONCILE_PAGE_BUDGET` 頁。回應的 `complete` 表示本輪是否完成；未完成時 `continuation` 只供管理者觀察，真正的 phase／cursor 已保存在 D1，下一次呼叫會自動接續。
 
 ## 回應與安全原則
 

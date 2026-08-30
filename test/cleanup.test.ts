@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Bindings } from "../src/bindings";
 import { reserveQuotaAndCreateRecords } from "../src/repositories/quota-repository";
 import { purgeDeletedMetadata } from "../src/repositories/file-repository";
@@ -13,6 +13,14 @@ import {
 } from "./helpers";
 
 describe("cleanup", () => {
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await env.DB.batch([
+      env.DB.prepare("DROP TRIGGER IF EXISTS fail_cleanup_purge"),
+      env.DB.prepare("DROP TRIGGER IF EXISTS fail_cleanup_finalization"),
+    ]);
+  });
+
   beforeEach(async () => {
     await resetState();
     await createTestInvitation({ now: 1_800_000_000 });
@@ -334,6 +342,75 @@ describe("cleanup", () => {
     ).not.toBeNull();
   });
 
+  it("marks a cleanup run failed with the actual finish time after a fatal purge error", async () => {
+    const now = 1_800_000_000;
+    vi.spyOn(Date, "now").mockReturnValue((now + 9) * 1_000);
+    await env.DB.prepare(
+      `INSERT INTO upload_sessions (id, token_hash, invitation_id, created_at, expires_at)
+       VALUES ('fatal-session', ?1, ?2, ?3, ?4)`,
+    )
+      .bind("a".repeat(64), TEST_INVITATION_ID, now - 100, now - 1)
+      .run();
+    await env.DB.prepare(
+      `CREATE TRIGGER fail_cleanup_purge
+       BEFORE DELETE ON upload_sessions
+       BEGIN
+         SELECT RAISE(ABORT, 'forced cleanup fatal');
+       END`,
+    ).run();
+
+    await expect(runCleanup(env, now)).rejects.toThrow(/forced cleanup fatal/u);
+    const run = await env.DB.prepare(
+      `SELECT started_at, finished_at, status, error_message
+       FROM cleanup_runs
+       ORDER BY started_at DESC
+       LIMIT 1`,
+    ).first<{
+      started_at: number;
+      finished_at: number;
+      status: string;
+      error_message: string | null;
+    }>();
+    expect(run).toMatchObject({
+      started_at: now,
+      finished_at: now + 9,
+      status: "failed",
+    });
+    expect(run?.error_message).toContain("forced cleanup fatal");
+  });
+
+  it("preserves the root cleanup error when failed-run finalization also fails", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await env.DB.prepare(
+      `INSERT INTO upload_sessions (id, token_hash, invitation_id, created_at, expires_at)
+       VALUES ('fatal-session', ?1, ?2, ?3, ?4)`,
+    )
+      .bind("b".repeat(64), TEST_INVITATION_ID, 1_799_999_900, 1_799_999_999)
+      .run();
+    await env.DB.batch([
+      env.DB.prepare(
+        `CREATE TRIGGER fail_cleanup_purge
+         BEFORE DELETE ON upload_sessions
+         BEGIN
+           SELECT RAISE(ABORT, 'root cleanup failure');
+         END`,
+      ),
+      env.DB.prepare(
+        `CREATE TRIGGER fail_cleanup_finalization
+         BEFORE UPDATE ON cleanup_runs
+         WHEN NEW.status = 'failed'
+         BEGIN
+           SELECT RAISE(ABORT, 'finalization failure');
+         END`,
+      ),
+    ]);
+
+    await expect(runCleanup(env, 1_800_000_000)).rejects.toThrow(/root cleanup failure/u);
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"event":"cleanup.finalization_failed"'),
+    );
+  });
+
   it("paginates through all D1 metadata and R2 objects during reconciliation", async () => {
     const now = Math.floor(Date.now() / 1000) + 7_200;
     const objectKeys = ["page-a", "page-b", "page-c"].map(
@@ -393,9 +470,39 @@ describe("cleanup", () => {
         return Reflect.get(target, property, receiver) as unknown;
       },
     }) as unknown as Bindings;
-    const result = await reconcileStorage(paginatedEnv, now);
+    const results = [];
+    let result;
+    do {
+      result = await reconcileStorage(
+        new Proxy(paginatedEnv, {
+          get(target, property, receiver) {
+            if (property === "RECONCILE_PAGE_BUDGET") {
+              return "1";
+            }
+            return Reflect.get(target, property, receiver) as unknown;
+          },
+        }),
+        now,
+      );
+      results.push(result);
+    } while (!result.complete && results.length < 10);
 
-    expect(result).toEqual({
+    expect(results[0]).toMatchObject({
+      complete: false,
+      continuation: { phase: "metadata" },
+    });
+    expect(results.at(-1)).toMatchObject({ complete: true, continuation: null });
+    expect(
+      results.reduce(
+        (total, current) => ({
+          missingObjects: total.missingObjects + current.missingObjects,
+          orphanObjects: total.orphanObjects + current.orphanObjects,
+          scannedFiles: total.scannedFiles + current.scannedFiles,
+          scannedObjects: total.scannedObjects + current.scannedObjects,
+        }),
+        { missingObjects: 0, orphanObjects: 0, scannedFiles: 0, scannedObjects: 0 },
+      ),
+    ).toEqual({
       missingObjects: 1,
       orphanObjects: 3,
       scannedFiles: 4,
@@ -407,5 +514,41 @@ describe("cleanup", () => {
     for (const objectKey of orphanKeys) {
       expect(await env.FILES.head(objectKey)).toBeNull();
     }
+  });
+
+  it("fails closed when the R2 reconciliation cursor does not advance", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    await env.DB.prepare(
+      `INSERT INTO reconciliation_state (
+         id, phase, object_cursor, cycle_started_at, updated_at
+       ) VALUES (1, 'objects', 'stuck-cursor', ?1, ?1)`,
+    )
+      .bind(now)
+      .run();
+    const stuckEnv = new Proxy(env, {
+      get(target, property, receiver) {
+        if (property === "FILES") {
+          return new Proxy(target.FILES, {
+            get(bucket, bucketProperty, bucketReceiver) {
+              if (bucketProperty === "list") {
+                return () =>
+                  Promise.resolve({
+                    objects: [],
+                    truncated: true,
+                    cursor: "stuck-cursor",
+                    delimitedPrefixes: [],
+                  });
+              }
+              return Reflect.get(bucket, bucketProperty, bucketReceiver) as unknown;
+            },
+          });
+        }
+        return Reflect.get(target, property, receiver) as unknown;
+      },
+    }) as unknown as Bindings;
+
+    await expect(reconcileStorage(stuckEnv, now)).rejects.toThrow(
+      /R2 reconciliation cursor did not advance/u,
+    );
   });
 });

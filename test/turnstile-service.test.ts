@@ -88,6 +88,26 @@ describe("Turnstile and optional access code", () => {
         undefined,
         "admin",
       ),
-    ).rejects.toMatchObject({ code: "TURNSTILE_FAILED", status: 403 });
+    ).rejects.toMatchObject({ code: "INTERNAL_ERROR", status: 500 });
   });
+
+  it.each(["https://upload.example.test", "https://upload.jwander.net"])(
+    "rejects local test mode for non-local upload origin %s",
+    async (uploadOrigin) => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+      await expect(
+        verifyTurnstile(
+          {
+            TURNSTILE_SECRET_KEY: "1x0000000000000000000000000000000AA",
+            TURNSTILE_TEST_MODE: "true",
+            UPLOAD_ORIGIN: uploadOrigin,
+          },
+          "dummy-token",
+          "127.0.0.1",
+        ),
+      ).rejects.toMatchObject({ code: "INTERNAL_ERROR", status: 500 });
+      expect(fetchSpy).not.toHaveBeenCalled();
+    },
+  );
 });
