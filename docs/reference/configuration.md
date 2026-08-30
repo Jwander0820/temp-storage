@@ -87,7 +87,7 @@
 | 前端批次       | `CLIENT_MAX_FILES_PER_BATCH`, `CLIENT_MAX_PARALLEL_UPLOADS`                                                                                                                          |
 | Cache          | `MEDIA_PREVIEW_CACHE_SECONDS`, `PUBLIC_CONFIG_CACHE_SECONDS`                                                                                                                         |
 | Cleanup        | `CLEANUP_BATCH_LIMIT`, `DELETED_METADATA_RETENTION_SECONDS`, `FAILED_UPLOAD_METADATA_RETENTION_SECONDS`, `CLEANUP_RUN_RETENTION_SECONDS`, `INVITATION_HISTORY_RETENTION_SECONDS`     |
-| Reconciliation | `RECONCILE_METADATA_LIMIT`, `RECONCILE_OBJECT_LIMIT`, `RECONCILE_ORPHAN_GRACE_SECONDS`                                                                                               |
+| Reconciliation | `RECONCILE_METADATA_LIMIT`, `RECONCILE_OBJECT_LIMIT`, `RECONCILE_PAGE_BUDGET`, `RECONCILE_ORPHAN_GRACE_SECONDS`                                                                      |
 | 開關與 origin  | `UPLOADS_ENABLED`, `UPLOAD_ORIGIN`, `CDN_ORIGIN`                                                                                                                                     |
 | 公開 Turnstile | `TURNSTILE_SITE_KEY`                                                                                                                                                                 |
 
@@ -98,6 +98,7 @@
 - 每日視窗不超過 24 小時。
 - Origin 是合法且符合實際 hostname boundary 的 URL。
 - `UPLOADS_ENABLED=false` 只作為緊急停止新上傳的開關，不應取代正常權限與配額。
+- `RECONCILE_PAGE_BUDGET` 必須是正整數；它限制單次 invocation 的 D1／R2 list 頁數，未完成時由 D1 checkpoint 安全續跑。
 
 ## Secrets
 
@@ -138,6 +139,8 @@ UPLOAD_ACCESS_CODE
 - `failed`／`rejected` 上傳 metadata 在建立超過 7 日且 reservation 已進入 `expired`／`cancelled`、quota 已釋放後，依 child-first 順序清除；對應額度事件仍保留。
 - 撤銷或到期邀請保留 90 日；只有在已無 `files` 與 `upload_reservations` 關聯時，才會連同 invitation token、session 與 `rate_limit_events` 依 child-first 順序移除。
 - 有效或仍被檔案 metadata 引用的 invitation，其 `rate_limit_events` 必須保留，因為這些資料同時是 invitation 檔案數與 byte 額度的終身帳本。
+
+Cleanup run 的狀態定義：沒有局部失敗為 `completed`；同一 run 同時有成功進度與局部失敗為 `partial`；沒有成功進度的局部失敗或任何頂層 fatal error 為 `failed`。`finished_at` 使用流程實際結束時間，不沿用排程開始時間。
 
 ## CSP 觀察模式
 

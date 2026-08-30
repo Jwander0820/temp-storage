@@ -9,19 +9,19 @@
 
 不要預讀全部文件，只開啟和目前任務直接相關的項目。
 
-| 任務                           | 文件                                                                                                     |
-| ------------------------------ | -------------------------------------------------------------------------------------------------------- |
-| 理解系統、權限或資料流         | [`architecture/system-overview.md`](./architecture/system-overview.md)                                   |
-| 修改介面或互動                 | [`design/ui-ux-guidelines.md`](./design/ui-ux-guidelines.md)                                             |
-| 啟動與手動測試                 | [`development/local-testing.md`](./development/local-testing.md)                                         |
-| Cloudflare 資源與部署          | [`development/deployment.md`](./development/deployment.md)                                               |
-| 設計 CDN、WAF 與成本防護       | [`development/cloudflare-edge-protection.md`](./development/cloudflare-edge-protection.md)               |
-| 建立或撤銷邀請                 | [`development/invitation-management.md`](./development/invitation-management.md)                         |
-| 修正 D1 metadata retention     | [`specifications/d1-metadata-retention-fix.md`](./specifications/d1-metadata-retention-fix.md)           |
-| 撰寫或拆分 commit              | [`development/commit-conventions.md`](./development/commit-conventions.md)                               |
-| 查詢 API                       | [`reference/api.md`](./reference/api.md)                                                                 |
-| 查詢限制與環境變數             | [`reference/configuration.md`](./reference/configuration.md)                                             |
-| 評估 Cloudflare 免費額度與成本 | [`reference/cloudflare-free-tier-and-cost.md`](./reference/cloudflare-free-tier-and-cost.md)             |
+| 任務                           | 文件                                                                                           |
+| ------------------------------ | ---------------------------------------------------------------------------------------------- |
+| 理解系統、權限或資料流         | [`architecture/system-overview.md`](./architecture/system-overview.md)                         |
+| 修改介面或互動                 | [`design/ui-ux-guidelines.md`](./design/ui-ux-guidelines.md)                                   |
+| 啟動與手動測試                 | [`development/local-testing.md`](./development/local-testing.md)                               |
+| Cloudflare 資源與部署          | [`development/deployment.md`](./development/deployment.md)                                     |
+| 設計 CDN、WAF 與成本防護       | [`development/cloudflare-edge-protection.md`](./development/cloudflare-edge-protection.md)     |
+| 建立或撤銷邀請                 | [`development/invitation-management.md`](./development/invitation-management.md)               |
+| 修正 D1 metadata retention     | [`specifications/d1-metadata-retention-fix.md`](./specifications/d1-metadata-retention-fix.md) |
+| 撰寫或拆分 commit              | [`development/commit-conventions.md`](./development/commit-conventions.md)                     |
+| 查詢 API                       | [`reference/api.md`](./reference/api.md)                                                       |
+| 查詢限制與環境變數             | [`reference/configuration.md`](./reference/configuration.md)                                   |
+| 評估 Cloudflare 免費額度與成本 | [`reference/cloudflare-free-tier-and-cost.md`](./reference/cloudflare-free-tier-and-cost.md)   |
 
 ## 分類方式
 
@@ -111,6 +111,7 @@ Codex 的實際尋找順序與 scope 規則，以 [OpenAI 官方 AGENTS.md 文�
 
 - [`README.md`](./specifications/README.md)：進行中規格的狀態與封存方式。
 - [`d1-metadata-retention-fix.md`](./specifications/d1-metadata-retention-fix.md)：修正 deleted files 與 reservation foreign key 清理順序。
+- [`temp-storage-public-repository-readiness-spec-2026-08-29.md`](./specifications/temp-storage-public-repository-readiness-spec-2026-08-29.md)：公開前安全修正、CI、治理與人工閘門進度。
 
 ### Archive
 

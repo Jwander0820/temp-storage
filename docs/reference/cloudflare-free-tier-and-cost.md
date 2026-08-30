@@ -2,7 +2,7 @@
 
 > 狀態：現行參考文件
 > 最後更新：2026-08-28
-> 適用設定：`wrangler.jsonc` 與 D1 migrations `0001`–`0010`
+> 適用設定：`wrangler.jsonc` 與 D1 migrations `0001`–`0011`
 
 這份文件用來估算 Jwander Temp Storage 在 Cloudflare Workers Free、D1 Free 與 R2 Standard
 下的用量，並說明遭遇異常流量時哪些資源會停止服務、哪些資源可能產生帳單。
@@ -163,25 +163,17 @@ DDoS 判定：
 ### Cloudflare Dashboard
 
 1. 保持 Workers Free，除非已完成 Paid plan 成本模型；Free plan 的 daily cap 是天然斷路器。
-2. 在 Billing 建立至少兩級 account-wide budget alerts，例如 US$1 與 US$5。它們不是 hard cap。
+2. 在 Billing 依營運者可接受損失建立至少兩級 account-wide budget alerts；正式金額與收件者保存在私人 Operations 紀錄。它們不是 hard cap。
 3. 確認 Free Managed Ruleset、HTTP DDoS protection、Security Events 與 Bot Fight Mode 的實際狀態。
-4. Free plan 有 5 個 WAF custom rules 與 1 個 rate limiting rule。Custom Rules 可精確保護：
-   - `POST /api/invitations/exchange`
-   - `POST /api/uploads/reserve`
-   - `PUT /api/uploads/*`
-   - `/api/admin/*`
-   - `cdn.jwander.net/temp-storage/objects/*`
-     Free Rate Limiting 只有 Path／Verified Bot expression、IP、10 秒週期，且會計入 cached assets；其唯一
-     規則優先用在專屬 `/temp-storage/objects/` path，不能照 Custom Rule 的 Host／Method 條件設定。
+4. 先依 Dashboard 當下額度安排 WAF custom rules 與 rate limiting rule。Custom Rules 優先保護驗證交換、上傳 mutation、管理 API 與公開 CDN prefix；實際名稱、expression、數量與門檻保存在私人 Operations 紀錄。
+   Free Rate Limiting 可用欄位、計數特徵、週期及 cached-assets 行為會依方案演進，設定前必須以官方文件與 Dashboard 為準。
 5. CDN temp prefix 只允許 GET／HEAD，拒絕不需要的 query string；影音 Range 必須先在 Security Events
    觀察，避免誤傷正常播放器。
 6. 啟用 Smart Tiered Cache，讓不同 edge locations 的 miss 優先共用 upper tier，降低 R2 Class B。
 7. 保持 `r2.dev` 關閉。Custom Domain 會讓整個 bucket 的已知 key 公開，不只本專案 prefix；共用
    `cdn` bucket 的其他物件必須被視為同一公開邊界。
 8. 確認 Cloudflare Access 只涵蓋 `/admin`、`/admin/*`、`/api/admin/*`，並定期測試未登入阻擋。
-9. 確認 `upload.jwander.net` 與 `cdn.jwander.net` 的 HTTP 請求會轉往 HTTPS；HSTS 初期使用一個月
-   Max Age，保持 `includeSubDomains` 與 preload 關閉。整個 zone 尚未完成 HTTPS 盤點時，使用限定這
-   兩個 hostname 的 Response Header Transform Rule，不開啟 zone-wide HSTS。
+9. 確認應用程式與 CDN hostname 的 HTTP 請求會轉往 HTTPS。HSTS 應先從 host-scoped、短 Max Age 漸進驗證；整個 zone 尚未完成 HTTPS 盤點時，不開啟 zone-wide `includeSubDomains` 或 preload。
 
 WAF Free plan 能力與規則數量見 [WAF overview](https://developers.cloudflare.com/waf/)、
 [Custom rules](https://developers.cloudflare.com/waf/custom-rules/) 與
@@ -190,9 +182,9 @@ WAF Free plan 能力與規則數量見 [WAF overview](https://developers.cloudfl
 ### Worker 內部
 
 現行程式已完成 access code oracle、D1 deleted metadata foreign key、大型 JSON、公開讀取／邀請交換／
-上傳 mutation 限流、session mutation CSRF、固定長度 capability 驗證、reconciliation 全分頁與歷史資料
+上傳 mutation 限流、session mutation CSRF、固定長度 capability 驗證、reconciliation 分頁 checkpoint 與歷史資料
 保留政策。metadata purge 會在同一 D1 batch 先刪 reservation child，再刪 file parent；migration
-`0009` 與 `0010` 分別加入 metadata purge 與歷史清理索引。`rate_limit_events` 只會跟著超過保留期且已
+`0009`、`0010` 與 `0011` 分別加入 metadata purge 索引、歷史清理索引與 reconciliation checkpoint。`rate_limit_events` 只會跟著超過保留期且已
 無檔案關聯的退休 invitation 清除，不會重設有效 invitation 的終身額度。這些程式與 migration 仍需
 正式部署後才在 production 生效。
 
@@ -220,9 +212,9 @@ Rate Limiting binding 行為見
 
 ## 8. 每月檢查表
 
-- [ ] Workers requests 的最高日是否低於 70,000，預留攻擊與突發空間。
-- [ ] D1 rows read／written 最高日是否低於免費額度 70%。
-- [ ] R2 account-wide storage 是否低於 7 GB-month，Class A／B 是否低於免費量 70%。
+- [ ] Workers requests 的最高日是否仍低於私人 Operations 紀錄中的預警水位。
+- [ ] D1 rows read／written 是否接近方案額度與營運者保留的安全餘裕。
+- [ ] R2 account-wide storage、Class A／B 是否接近方案額度與成本預警水位。
 - [ ] CDN cache hit ratio 是否穩定，是否出現大量唯一 query string 或異常 Range。
 - [ ] `cleanup_runs`、`rate_limit_events`、`upload_reservations` 與 `files` row count 是否持續單向增長。
 - [ ] Workers Logs 是否接近 200,000 events／日；2026-10-01 後把 trace spans 一併計入。

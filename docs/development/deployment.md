@@ -8,19 +8,19 @@
 
 ## 正式環境
 
-| 項目              | 現況                                                |
-| ----------------- | --------------------------------------------------- |
-| Production branch | `main`                                              |
-| Worker            | `jwander-temp-storage`                              |
-| 公開入口          | `https://upload.jwander.net`                        |
-| R2                | `cdn` bucket，僅使用 `temp-storage/objects/` prefix |
-| R2 Custom Domain  | `https://cdn.jwander.net`                           |
-| D1                | `jwander-temp-storage-db`                           |
-| Migration files   | `0001`–`0010`                                       |
+| 項目              | 現況                                                      |
+| ----------------- | --------------------------------------------------------- |
+| Production branch | `main`                                                    |
+| Worker            | `jwander-temp-storage`                                    |
+| 公開入口          | `https://upload.jwander.net`                              |
+| R2                | `cdn` bucket，僅使用 `temp-storage/objects/` prefix       |
+| R2 Custom Domain  | `https://cdn.jwander.net`                                 |
+| D1                | `jwander-temp-storage-db`                                 |
+| Migration files   | `0001`–`0011`                                             |
 | 正式 migration    | 以 Cloudflare deployment log 為準；公開文件不記錄線上狀態 |
-| Scheduled trigger | `0 * * * *`                                         |
-| Cloudflare Access | 只允許保護 Admin paths；線上狀態記錄於私人 Operations |
-| CDN 邊緣防護      | 設計原則見公開指南；線上規則與門檻不放在 repository |
+| Scheduled trigger | `0 * * * *`                                               |
+| Cloudflare Access | 只允許保護 Admin paths；線上狀態記錄於私人 Operations     |
+| CDN 邊緣防護      | 設計原則見公開指南；線上規則與門檻不放在 repository       |
 
 `cdn.jwander.net` 由既有 R2 Custom Domain 提供，不由 Worker 接管。Worker 只宣告 `upload.jwander.net`，且所有 R2 清理與 reconciliation 都必須限制在 `temp-storage/objects/`。
 
@@ -150,6 +150,7 @@ pnpm run deploy:cloudflare
 - `ADMIN_LOGIN_RATE_LIMITER` binding 已部署，且 namespace 未與其他 limiter 共用。
 - `UPLOAD_MUTATION_RATE_LIMITER` binding 已部署為 namespace `1005`，且 reserve／PUT 的正常流量不會誤觸 429。
 - 新 migration 已完成驗證並可安全依序套用。
+- `0011_reconciliation_checkpoint.sql` 必須先於使用分段 reconciliation 的 Worker 版本套用。
 - `cdn.jwander.net` 仍由 R2 Custom Domain 提供，`r2.dev` 保持關閉。
 - R2 Lifecycle Rule 只涵蓋 `temp-storage/objects/`。
 - Worker route 只接管 `upload.jwander.net`。
