@@ -1,10 +1,13 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import type { AppEnv } from "../app-types";
 import { DomainError } from "../domain/errors";
 import { getConfig } from "../env";
 import { fileBrowserAccessMiddleware } from "../middleware/file-browser-access";
 import { fileBrowserRateLimitMiddleware } from "../middleware/file-browser-rate-limit";
-import { publicFileRateLimitMiddleware } from "../middleware/request-protection";
+import {
+  deleteMutationRateLimitMiddleware,
+  publicFileRateLimitMiddleware,
+} from "../middleware/request-protection";
 import { getAccessibleFile } from "../repositories/file-repository";
 import { deleteFileWithToken } from "../services/deletion-service";
 import { browseActiveFiles, type BrowseFileType } from "../services/file-browser-service";
@@ -48,18 +51,19 @@ fileRoutes.get("/files/:fileId", publicFileRateLimitMiddleware, async (context) 
   return context.json(toPublicFile(file, getConfig(context.env)));
 });
 
-fileRoutes.delete("/files/:fileId", publicFileRateLimitMiddleware, async (context) => {
+async function deleteWithCapability(context: Context<AppEnv>) {
   const authorization = context.req.header("Authorization");
   const match = /^DeleteToken\s+(\S+)$/u.exec(authorization ?? "");
-  if (!match?.[1] || !isRandomToken32(match[1])) {
+  const deleteToken = match?.[1];
+  if (deleteToken === undefined || !isRandomToken32(deleteToken)) {
     throw new DomainError("INVALID_DELETE_TOKEN", 403, "缺少刪除憑證。");
   }
 
   const fileId = context.req.param("fileId");
-  if (!isFileId(fileId)) {
+  if (fileId === undefined || !isFileId(fileId)) {
     throw new DomainError("FILE_NOT_FOUND", 404, "找不到檔案。");
   }
-  await deleteFileWithToken(context.env, fileId, match[1], Math.floor(Date.now() / 1000));
+  await deleteFileWithToken(context.env, fileId, deleteToken, Math.floor(Date.now() / 1000));
   console.log(
     JSON.stringify({
       level: "info",
@@ -69,4 +73,9 @@ fileRoutes.delete("/files/:fileId", publicFileRateLimitMiddleware, async (contex
     }),
   );
   return context.body(null, 204);
-});
+}
+
+fileRoutes.delete("/delete/:fileId", deleteMutationRateLimitMiddleware, deleteWithCapability);
+
+// Backward compatibility for delete capabilities returned before the dedicated route existed.
+fileRoutes.delete("/files/:fileId", deleteMutationRateLimitMiddleware, deleteWithCapability);

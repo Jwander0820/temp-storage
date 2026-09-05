@@ -65,6 +65,14 @@
         "period": 60,
       },
     },
+    {
+      "name": "DELETE_MUTATION_RATE_LIMITER",
+      "namespace_id": "1006",
+      "simple": {
+        "limit": 20,
+        "period": 60,
+      },
+    },
   ],
   "r2_buckets": [
     {

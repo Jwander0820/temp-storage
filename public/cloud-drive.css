@@ -664,6 +664,29 @@ input:not([type="checkbox"]):not([type="radio"]):focus {
   padding: 0;
   list-style: none;
 }
+.delete-capability-notice {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 16px;
+  padding: 15px;
+  border: 1px solid color-mix(in srgb, var(--warning) 42%, var(--line));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--warning) 8%, var(--surface));
+}
+.delete-capability-notice div {
+  display: grid;
+  gap: 3px;
+}
+.delete-capability-notice span {
+  color: var(--text-soft);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+.delete-capability-notice button {
+  flex: none;
+}
 .queue__empty,
 .empty-state {
   margin: 0;
@@ -1558,6 +1581,10 @@ input:not([type="checkbox"]):not([type="radio"]):focus {
   .upload-item__actions {
     max-width: none;
     justify-content: flex-start;
+  }
+  .delete-capability-notice {
+    align-items: stretch;
+    flex-direction: column;
   }
   .files-hero,
   .admin-hero,

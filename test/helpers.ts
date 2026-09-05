@@ -142,4 +142,5 @@ export interface CompletedUpload {
   readonly previewUrl: string | null;
   readonly downloadUrl: string;
   readonly deleteToken: string;
+  readonly deleteUrl: string;
 }

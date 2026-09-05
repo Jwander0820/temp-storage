@@ -24,6 +24,15 @@ describe("public request protections", () => {
     vi.restoreAllMocks();
   });
 
+  it("publishes the configured origins for client file URL validation", async () => {
+    const response = await exports.default.fetch(`${TEST_UPLOAD_ORIGIN}/api/config`);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      uploadOrigin: env.UPLOAD_ORIGIN,
+      cdnOrigin: env.CDN_ORIGIN,
+    });
+  });
+
   it("rejects oversized JSON bodies on every JSON mutation route", async () => {
     vi.spyOn(env.INVITATION_EXCHANGE_RATE_LIMITER, "limit").mockResolvedValue({ success: true });
     vi.spyOn(env.ADMIN_LOGIN_RATE_LIMITER, "limit").mockResolvedValue({ success: true });
@@ -115,7 +124,6 @@ describe("public request protections", () => {
     const fileId = "A".repeat(22);
     const requests = [
       new Request(`https://upload.example.test/api/files/${fileId}`),
-      new Request(`https://upload.example.test/api/files/${fileId}`, { method: "DELETE" }),
       new Request(`https://upload.example.test/p/${fileId}`),
       new Request(`https://upload.example.test/d/${fileId}`, { method: "HEAD" }),
     ];
@@ -123,6 +131,21 @@ describe("public request protections", () => {
     for (const request of requests) {
       const response = await exports.default.fetch(request);
       expect(response.status, `${request.method} ${new URL(request.url).pathname}`).toBe(429);
+      expect(response.headers.get("Retry-After")).toBe("60");
+    }
+  });
+
+  it("rate limits delete capabilities with a dedicated lower-volume bucket", async () => {
+    vi.spyOn(env.DELETE_MUTATION_RATE_LIMITER, "limit").mockResolvedValue({ success: false });
+    const fileId = "A".repeat(22);
+    const requests = [
+      new Request(`https://upload.example.test/api/delete/${fileId}`, { method: "DELETE" }),
+      new Request(`https://upload.example.test/api/files/${fileId}`, { method: "DELETE" }),
+    ];
+
+    for (const request of requests) {
+      const response = await exports.default.fetch(request);
+      expect(response.status).toBe(429);
       expect(response.headers.get("Retry-After")).toBe("60");
     }
   });

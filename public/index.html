@@ -165,6 +165,16 @@
               <h2 id="queue-title">上傳佇列</h2>
               <span id="queueCount">0 個檔案</span>
             </div>
+            <aside id="deleteCapabilityNotice" class="delete-capability-notice is-hidden">
+              <div>
+                <strong>現在保存刪除連結</strong>
+                <span>每個檔案的連結只在本次上傳完成後提供；離開或重新整理後無法補發。</span>
+                <span id="deleteCapabilityCount">目前有 0 個刪除連結可匯出</span>
+              </div>
+              <button id="downloadDeleteLinksButton" class="secondary-button" type="button">
+                下載刪除連結清單
+              </button>
+            </aside>
             <ol id="uploadQueue" class="queue__list">
               <li class="queue__empty">尚未加入檔案。</li>
             </ol>
