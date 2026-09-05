@@ -57,10 +57,15 @@ Workers Builds 使用的 API token 必須具備 Workers Scripts、D1、R2 與 Wo
 - `FILE_BROWSER_RATE_LIMITER`：共享檔案清單的 session 級限流。
 - `ADMIN_LOGIN_RATE_LIMITER`：`POST /api/admin/session` 的獨立 IP 級限流，預設每分鐘 5 次；不得與檔案瀏覽 binding 共用 namespace。
 - `INVITATION_EXCHANGE_RATE_LIMITER`：邀請交換的獨立 IP 級限流，預設每分鐘 20 次，且在 JSON 與 Turnstile 前執行。
-- `PUBLIC_FILE_RATE_LIMITER`：Worker 公開單檔 metadata、刪除、預覽與下載的 IP 級限流，預設每分鐘 300 次。
+- `PUBLIC_FILE_RATE_LIMITER`：Worker 公開單檔 metadata、預覽與下載的 IP 級限流，預設每分鐘 300 次。
 - `UPLOAD_MUTATION_RATE_LIMITER`：reserve 與 raw upload PUT 共用的 IP 級限流，預設每分鐘 120 次，且在 session、D1 與 R2 前執行。
+- `DELETE_MUTATION_RATE_LIMITER`：DeleteToken mutation 的獨立 IP 級限流，預設每分鐘 20 次，且在 D1 與 R2 前執行。
 
 在其他 Cloudflare 帳號重建時，必須更新 D1 `database_id`、Turnstile site key，並確認所有 Rate Limiting `namespace_id` 彼此不同，也沒有和該帳號其他 binding 共用。
+
+上傳者刪除連結功能沿用既有 delete-token hash 與檔案生命週期，不新增 D1 migration。
+更新時需一起交付 Worker、Static Assets 與 `DELETE_MUTATION_RATE_LIMITER` binding；新前端依賴
+`/api/config` 的 `uploadOrigin` 與上傳完成回應的 `deleteUrl`。保留舊的 DeleteToken API 相容路由。
 
 ## Runtime secrets
 

@@ -1,7 +1,7 @@
 # 系統架構總覽
 
 > 狀態：現行架構  
-> 最後更新：2026-08-28
+> 最後更新：2026-09-04
 > 適用版本：D1 migrations `0001`–`0011`
 
 ## 1. 系統目標
@@ -18,16 +18,16 @@ Jwander Temp Storage 是私有、邀請制的共享暫存檔案服務。系統�
 
 ## 2. 技術棧
 
-| 層級           | 技術                                      | 責任                                                 |
-| -------------- | ----------------------------------------- | ---------------------------------------------------- |
-| Web UI         | TypeScript、HTML、CSS、Vite               | 邀請驗證、上傳、共享瀏覽、檔案預覽與管理介面         |
-| Edge API       | Cloudflare Workers、Hono                  | 驗證、配額、檔案政策、媒體串流、清理與 API           |
-| Metadata       | Cloudflare D1                             | 檔案狀態、reservation、邀請、session、配額與清理紀錄 |
-| Object storage | Cloudflare R2 `cdn` bucket                | `temp-storage/objects/` 下的檔案本體                 |
-| Public media   | R2 Custom Domain                          | 只提供白名單 inline 媒體的直接預覽                   |
-| Bot protection | Cloudflare Turnstile                      | 邀請交換與管理員登入前的人機驗證                     |
-| Rate limiting  | Workers Rate Limiting binding + D1 events | 邀請交換、檔案讀取、清單輪詢與上傳 IP／流量限制      |
-| Scheduled work | Worker Cron + R2 Lifecycle                | 每小時清理、每日 reconciliation 與漏刪保險           |
+| 層級           | 技術                                      | 責任                                                  |
+| -------------- | ----------------------------------------- | ----------------------------------------------------- |
+| Web UI         | TypeScript、HTML、CSS、Vite               | 邀請驗證、上傳、共享瀏覽、檔案預覽與管理介面          |
+| Edge API       | Cloudflare Workers、Hono                  | 驗證、配額、檔案政策、媒體串流、清理與 API            |
+| Metadata       | Cloudflare D1                             | 檔案狀態、reservation、邀請、session、配額與清理紀錄  |
+| Object storage | Cloudflare R2 `cdn` bucket                | `temp-storage/objects/` 下的檔案本體                  |
+| Public media   | R2 Custom Domain                          | 只提供白名單 inline 媒體的直接預覽                    |
+| Bot protection | Cloudflare Turnstile                      | 邀請交換與管理員登入前的人機驗證                      |
+| Rate limiting  | Workers Rate Limiting binding + D1 events | 邀請交換、檔案讀取、刪除、清單輪詢與上傳 IP／流量限制 |
+| Scheduled work | Worker Cron + R2 Lifecycle                | 每小時清理、每日 reconciliation 與漏刪保險            |
 
 ## 3. 高階拓樸
 
@@ -71,15 +71,15 @@ test/                   # Workers runtime、D1 與 R2 整合測試
 
 ## 5. 信任與權限模型
 
-| 能力                | 取得方式                                  | 主要用途                                                             |
-| ------------------- | ----------------------------------------- | -------------------------------------------------------------------- |
-| 匿名公開能力        | 公開 route 或不可猜測的單檔 URL           | Health/config、有效單檔頁面、預覽或下載                              |
-| Invitation token    | 邀請 URL fragment                         | 經 Turnstile 交換 invitation session；不直接當 API Bearer token 使用 |
-| Invitation session  | HttpOnly Cookie                           | 共享檔案清單、容量、上傳；每次請求重新驗證邀請狀態與期限             |
-| Browse-only session | `can_upload = 0` 的 invitation session    | 可瀏覽、預覽與下載；所有 `/api/uploads/*` 由後端回覆 403             |
-| Admin bootstrap     | Access 後通過限流、Turnstile 與管理 token | 只可由 `POST /api/admin/session` 交換 admin session                  |
-| Admin session       | 4 小時 HttpOnly Cookie                    | 邀請管理、共享檔案 capability 與管理員刪除                           |
-| Delete token        | 完成上傳時一次回傳的 capability           | 刪除對應單檔，不授予其他檔案或管理能力                               |
+| 能力                | 取得方式                                     | 主要用途                                                             |
+| ------------------- | -------------------------------------------- | -------------------------------------------------------------------- |
+| 匿名公開能力        | 公開 route 或不可猜測的單檔 URL              | Health/config、有效單檔頁面、預覽或下載                              |
+| Invitation token    | 邀請 URL fragment                            | 經 Turnstile 交換 invitation session；不直接當 API Bearer token 使用 |
+| Invitation session  | HttpOnly Cookie                              | 共享檔案清單、容量、上傳；每次請求重新驗證邀請狀態與期限             |
+| Browse-only session | `can_upload = 0` 的 invitation session       | 可瀏覽、預覽與下載；所有 `/api/uploads/*` 由後端回覆 403             |
+| Admin bootstrap     | Access 後通過限流、Turnstile 與管理 token    | 只可由 `POST /api/admin/session` 交換 admin session                  |
+| Admin session       | 4 小時 HttpOnly Cookie                       | 邀請管理、共享檔案 capability 與管理員刪除                           |
+| Delete token        | 完成上傳時一次回傳的 URL-fragment capability | 刪除對應單檔，不授予其他檔案或管理能力；不保存明文、不可補發         |
 
 這些能力彼此獨立。永久 `ADMIN_TOKEN` 不能直接操作管理 API；Admin session 不自動授予上傳權限；browse-only invitation 不可因額度欄位或 UI 狀態繞過後端限制。正式環境以 Cloudflare Access 只包住 `/admin`、`/admin/*` 與 `/api/admin/*`，不得讓一般邀請流程經過 Access。
 
@@ -126,8 +126,10 @@ PUT /api/uploads/:uploadId
   → allowed: 串流寫入 R2
   → 驗證實際大小
   → D1 將 file 標為 active 並消耗 reservation
-  → 回傳 public file metadata + 一次性 delete token
+  → 回傳 public file metadata + 一次性揭露的 delete token／刪除連結
 ```
+
+批次上傳仍是逐檔完成：每個成功檔案各自取得不同的刪除連結。前端可逐檔複製，或把目前已完成項目匯出成一份本機文字清單；離開或重新整理頁面後，伺服器不提供查詢或補發明文 token 的 API。
 
 物件 key 固定在 `temp-storage/objects/YYYY/MM/DD/:fileId`。檔案宣告 MIME、副檔名與內容偵測都會參與政策判斷；HTML、SVG、JavaScript 等主動內容 fail closed。
 
@@ -140,16 +142,17 @@ PUT /api/uploads/:uploadId
 - `/p/:id` 是 Worker 預覽 fallback。
 - `/d/:id` 永遠先由 Worker 查 D1 狀態，再從 R2 串流附件下載並支援 HEAD/Range。
 
-Worker 提供的公開單檔 metadata、DeleteToken、預覽與下載會在 D1／R2 前共用寬鬆的 IP 限流。R2 Custom Domain 不經 Worker，另由 Cloudflare WAF 與 CDN rate rule 控制。
+Worker 提供的公開單檔 metadata、預覽與下載會在 D1／R2 前共用寬鬆的 IP 限流；DeleteToken mutation 使用獨立、較低額度的 binding。R2 Custom Domain 不經 Worker，另由 Cloudflare WAF 與 CDN rate rule 控制。
 
 邀請檔案數或容量用完時，只拒絕新的 reservation；既有有效 session 仍可瀏覽與下載。
 
 ### 6.5 刪除
 
-1. Delete-token route 或 admin route 將檔案進入刪除流程。
-2. D1 狀態避免重複扣除容量。
-3. R2 物件刪除後，metadata 保留一段時間供稽核與重試。
-4. 已刪除或到期檔案不再出現在共享清單，public item/download 回覆 404。
+1. 上傳回應只在完成時提供 `/delete/:fileId#token=...`；fragment 不會隨初始 GET 傳給伺服器。
+2. 刪除頁先顯示檔案與不可逆警告，只有使用者確認後才以 `DELETE /api/delete/:fileId` 傳送 token，避免預覽器、預抓或安全掃描器因開啟網址而誤刪。
+3. Delete-token route 或 admin route 將檔案進入刪除流程；專屬 binding 會在 D1／R2 前限制匿名 mutation。
+4. D1 狀態避免重複扣除容量。管理員已先刪除、token 重複使用或檔案已到期時，UI 會安全顯示檔案已不存在。
+5. R2 物件刪除後，metadata 保留一段時間供稽核與重試；已刪除或到期檔案不再出現在共享清單，public item/download 回覆 404。
 
 ### 6.6 Cleanup 與 reconciliation
 
@@ -198,7 +201,8 @@ Schema 只透過 `migrations/` 依序演進。不得修改已在正式環境套�
 - `GET /api/config`
 - `POST /api/invitations/exchange`
 - `GET /api/files/:fileId`
-- `DELETE /api/files/:fileId`（DeleteToken）
+- `DELETE /api/delete/:fileId`（DeleteToken）
+- `DELETE /api/files/:fileId`（舊 DeleteToken capability 相容路由）
 - `GET|HEAD /p/:fileId`
 - `GET|HEAD /d/:fileId`
 
@@ -230,7 +234,7 @@ Schema 只透過 `migrations/` 依序演進。不得修改已在正式環境套�
 
 ## 9. 設定與秘密
 
-非秘密設定集中在 `wrangler.jsonc` 的 `vars`，啟動時由 `src/env.ts` 驗證相依關係。Cloudflare bindings 包含 `ASSETS`、`DB`、`FILES`，以及檔案瀏覽、管理登入、邀請交換、公開檔案與上傳 mutation 的獨立 Rate Limiting bindings。
+非秘密設定集中在 `wrangler.jsonc` 的 `vars`，啟動時由 `src/env.ts` 驗證相依關係。Cloudflare bindings 包含 `ASSETS`、`DB`、`FILES`，以及檔案瀏覽、管理登入、邀請交換、公開檔案、刪除 mutation 與上傳 mutation 的獨立 Rate Limiting bindings。
 
 必要秘密：
 
@@ -242,7 +246,6 @@ Schema 只透過 `migrations/` 依序演進。不得修改已在正式環境套�
 選用秘密：
 
 - `UPLOAD_ACCESS_CODE`
-- `TURNSTILE_TEST_MODE`（只用於本機測試）
 
 秘密只放 `.dev.vars` 或 Cloudflare runtime secrets，不放 Git、前端、文件、log 或 Workers Builds 的公開變數。
 
