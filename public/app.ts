@@ -1,4 +1,9 @@
 import { limitUploadBatch } from "./upload-limits";
+import {
+  createDeleteCapabilityExport,
+  deleteTokenFromFragment,
+  validateDeleteUrl,
+} from "./delete-capability";
 import { createDefaultInvitationLabel } from "./invitation-label";
 import { createLatestRequestCoordinator } from "./latest-request";
 import { validatePublicFileUrls } from "./public-file-url";
@@ -13,6 +18,7 @@ interface PublicConfig {
   readonly maxFilesPerBatch: number;
   readonly maxParallelUploads: number;
   readonly sessionTtlSeconds: number;
+  readonly uploadOrigin: string;
   readonly cdnOrigin: string;
 }
 
@@ -53,6 +59,7 @@ interface PublicFile {
 
 interface CompletedUpload extends PublicFile {
   readonly deleteToken: string;
+  readonly deleteUrl: string;
 }
 
 interface Reservation {
@@ -236,6 +243,9 @@ const cancelDeleteFileButton = elementById("cancelDeleteFileButton", HTMLButtonE
 const confirmDeleteFileButton = elementById("confirmDeleteFileButton", HTMLButtonElement);
 const uploadQueue = elementById("uploadQueue", HTMLOListElement);
 const queueCount = elementById("queueCount", HTMLElement);
+const deleteCapabilityNotice = elementById("deleteCapabilityNotice", HTMLElement);
+const deleteCapabilityCount = elementById("deleteCapabilityCount", HTMLElement);
+const downloadDeleteLinksButton = elementById("downloadDeleteLinksButton", HTMLButtonElement);
 const uploadHelp = elementById("upload-help", HTMLElement);
 const toastRegion = elementById("toastRegion", HTMLElement);
 const themeToggle = elementById("themeToggle", HTMLButtonElement);
@@ -366,6 +376,7 @@ function parseConfig(value: unknown): PublicConfig {
     maxFilesPerBatch: requiredNumber(value, "maxFilesPerBatch"),
     maxParallelUploads: requiredNumber(value, "maxParallelUploads"),
     sessionTtlSeconds: requiredNumber(value, "sessionTtlSeconds"),
+    uploadOrigin: requiredString(value, "uploadOrigin"),
     cdnOrigin: requiredString(value, "cdnOrigin"),
   };
 }
@@ -424,7 +435,7 @@ function parsePublicFile(value: unknown): PublicFile {
     previewPolicy,
     previewUrl,
     downloadUrl: requiredString(value, "downloadUrl"),
-    uploadOrigin: window.location.origin,
+    uploadOrigin: config.uploadOrigin,
     cdnOrigin: config.cdnOrigin,
   });
   return {
@@ -458,12 +469,20 @@ function parseSessionCapabilities(value: unknown): SessionCapabilities {
 }
 
 function parseCompletedUpload(value: unknown): CompletedUpload {
-  if (!isRecord(value)) {
+  if (!isRecord(value) || config === null) {
     throw new Error("Invalid upload response.");
   }
+  const file = parsePublicFile(value);
+  const deleteToken = requiredString(value, "deleteToken");
   return {
-    ...parsePublicFile(value),
-    deleteToken: requiredString(value, "deleteToken"),
+    ...file,
+    deleteToken,
+    deleteUrl: validateDeleteUrl(
+      requiredString(value, "deleteUrl"),
+      config.uploadOrigin,
+      file.id,
+      deleteToken,
+    ),
   };
 }
 
@@ -958,6 +977,9 @@ function createActionButton(label: string, action: () => void): HTMLButtonElemen
 }
 
 function renderQueue(): void {
+  const completed = tasks.flatMap((task) => (task.result === null ? [] : [task.result]));
+  deleteCapabilityNotice.classList.toggle("is-hidden", completed.length === 0);
+  deleteCapabilityCount.textContent = `目前有 ${completed.length} 個刪除連結可匯出`;
   queueCount.textContent = `${tasks.length} 個檔案`;
   uploadQueue.replaceChildren();
   if (tasks.length === 0) {
@@ -1013,6 +1035,9 @@ function renderQueue(): void {
         createActionButton("複製下載連結", () => {
           void copyText(result.downloadUrl);
         }),
+        createActionButton("複製刪除連結", () => {
+          void copyText(result.deleteUrl);
+        }),
       );
       if (result.previewUrl !== null) {
         actions.append(
@@ -1034,6 +1059,38 @@ function renderQueue(): void {
     item.append(main, actions);
     uploadQueue.append(item);
   }
+}
+
+function downloadDeleteLinks(): void {
+  const completed = tasks.flatMap((task) =>
+    task.result === null
+      ? []
+      : [
+          {
+            filename: task.result.filename,
+            fileId: task.result.id,
+            deleteToken: task.result.deleteToken,
+            deleteUrl: task.result.deleteUrl,
+          },
+        ],
+  );
+  if (completed.length === 0) {
+    showToast("目前沒有可匯出的刪除連結。", "error");
+    return;
+  }
+
+  const blob = new Blob([createDeleteCapabilityExport(completed)], {
+    type: "text/plain;charset=utf-8",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `jwander-delete-links-${new Date().toISOString().replaceAll(":", "-")}.txt`;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  showToast(`已匯出 ${completed.length} 個刪除連結`);
 }
 
 function cancelTask(task: UploadTask): void {
@@ -1251,8 +1308,8 @@ async function loadConfig(): Promise<void> {
   config = parseConfig(payload);
   uploadHelp.textContent =
     `單次最多加入 ${config.maxFilesPerBatch} 個檔案、` +
-    `單一檔案上限 ${formatBytes(config.maxFileBytes)}；` +
-    `同時處理 ${config.maxParallelUploads} 個上傳。完成後可直接複製分享或下載連結。`;
+    `單一檔案上限 ${formatBytes(config.maxFileBytes)}。` +
+    "完成後可直接複製分享或下載連結。";
   if (!config.uploadsEnabled) {
     dropZone.classList.add("is-disabled");
     chooseButton.disabled = true;
@@ -2105,6 +2162,98 @@ async function loadFilePage(fileId: string): Promise<void> {
   filePage.replaceChildren(eyebrow, heading, summary, preview, details, actions);
 }
 
+function renderDeleteCapabilityState(
+  title: string,
+  message: string,
+  action?: HTMLButtonElement,
+): void {
+  const eyebrow = document.createElement("p");
+  eyebrow.className = "eyebrow";
+  eyebrow.textContent = "上傳者刪除權限";
+  const heading = document.createElement("h1");
+  heading.textContent = title;
+  const description = document.createElement("p");
+  description.className = "file-page__summary";
+  description.textContent = message;
+  const actions = document.createElement("div");
+  actions.className = "file-page__actions";
+  if (action !== undefined) {
+    actions.append(action);
+  }
+  const home = document.createElement("a");
+  home.href = "/";
+  home.className = "secondary-button secondary-button--link";
+  home.textContent = "回到上傳頁";
+  actions.append(home);
+  filePage.replaceChildren(eyebrow, heading, description, actions);
+}
+
+async function initializeDeletePage(fileId: string): Promise<void> {
+  uploadPage.classList.add("is-hidden");
+  filesPage.classList.add("is-hidden");
+  adminPage.classList.add("is-hidden");
+  filePage.classList.remove("is-hidden");
+  setNavigationMode(false);
+
+  const deleteToken = deleteTokenFromFragment(window.location.hash);
+  if (deleteToken === null) {
+    renderDeleteCapabilityState(
+      "刪除連結不完整",
+      "這個刪除權限只在上傳完成時提供一次。請使用當時保存的完整連結；系統無法補發。",
+    );
+    return;
+  }
+
+  filePage.textContent = "正在確認檔案狀態…";
+  await loadConfig();
+  const response = await fetch(`/api/files/${encodeURIComponent(fileId)}`);
+  if (response.status === 404) {
+    renderDeleteCapabilityState(
+      "檔案已不存在",
+      "檔案可能已由管理員刪除、先前使用這個連結刪除，或已經到期。你不需要再做任何操作。",
+    );
+    return;
+  }
+  if (!response.ok) {
+    renderDeleteCapabilityState("目前無法確認檔案", await responseError(response));
+    return;
+  }
+
+  const file = parsePublicFile(await response.json());
+  const deleteButton = document.createElement("button");
+  deleteButton.type = "button";
+  deleteButton.className = "primary-button danger-button";
+  deleteButton.textContent = "永久刪除這個檔案";
+  deleteButton.addEventListener("click", () => {
+    deleteButton.disabled = true;
+    deleteButton.textContent = "正在刪除…";
+    void fetch(`/api/delete/${encodeURIComponent(fileId)}`, {
+      method: "DELETE",
+      headers: { Authorization: `DeleteToken ${deleteToken}` },
+    })
+      .then(async (deleteResponse) => {
+        if (deleteResponse.status !== 204) {
+          throw new Error(await responseError(deleteResponse));
+        }
+        window.history.replaceState(null, "", `/delete/${encodeURIComponent(fileId)}`);
+        renderDeleteCapabilityState(
+          "檔案已刪除",
+          "檔案已從暫存區移除；已載入或快取的公開預覽可能短暫保留。",
+        );
+      })
+      .catch((error: unknown) => {
+        deleteButton.disabled = false;
+        deleteButton.textContent = "永久刪除這個檔案";
+        showToast(error instanceof Error ? error.message : "無法刪除檔案。", "error");
+      });
+  });
+  renderDeleteCapabilityState(
+    `刪除「${file.filename}」？`,
+    "這個動作無法復原，只會刪除這一個檔案。連結中的刪除權限不會授予其他檔案或管理功能。",
+    deleteButton,
+  );
+}
+
 chooseButton.addEventListener("click", () => fileInput.click());
 fileInput.addEventListener("change", () => {
   if (fileInput.files !== null) {
@@ -2196,8 +2345,10 @@ loadMoreSharedFilesButton.addEventListener("click", () => {
     loadMoreSharedFilesButton.disabled = false;
   });
 });
+downloadDeleteLinksButton.addEventListener("click", downloadDeleteLinks);
 
 const filePageMatch = /^\/file\/([^/]+)$/u.exec(window.location.pathname);
+const deletePageMatch = /^\/delete\/([^/]+)$/u.exec(window.location.pathname);
 if (window.location.pathname === "/admin" || window.location.pathname === "/admin/") {
   void initializeAdminPage().catch((error: unknown) => {
     adminGateMessage.textContent = error instanceof Error ? error.message : "管理頁載入失敗。";
@@ -2211,6 +2362,13 @@ if (window.location.pathname === "/admin" || window.location.pathname === "/admi
 } else if (filePageMatch?.[1] !== undefined) {
   void loadFilePage(decodeURIComponent(filePageMatch[1])).catch((error: unknown) => {
     filePage.textContent = error instanceof Error ? error.message : "無法載入檔案資訊。";
+  });
+} else if (deletePageMatch?.[1] !== undefined) {
+  void initializeDeletePage(decodeURIComponent(deletePageMatch[1])).catch((error: unknown) => {
+    renderDeleteCapabilityState(
+      "無法開啟刪除連結",
+      error instanceof Error ? error.message : "請稍後再試。",
+    );
   });
 } else {
   void initializeUploadPage().catch((error: unknown) => {

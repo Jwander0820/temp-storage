@@ -12,7 +12,6 @@ export default defineConfig({
         bindings: {
           TEST_MIGRATIONS: await readD1Migrations(path.join(import.meta.dirname, "migrations")),
           TURNSTILE_SECRET_KEY: "test-turnstile-secret",
-          TURNSTILE_TEST_MODE: "false",
           DELETE_TOKEN_PEPPER: "test-delete-token-pepper-32-bytes-minimum",
           IP_HASH_PEPPER: "test-ip-hash-pepper-32-bytes-minimum",
           ADMIN_TOKEN: "test-admin-token-32-bytes-minimum-0123456789",

@@ -2,6 +2,7 @@ import { env, exports } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CompletedUpload } from "./helpers";
 import {
+  createTestAdminSession,
   createTestInvitationSession,
   mockSuccessfulTurnstile,
   resetState,
@@ -72,6 +73,9 @@ describe("upload, preview, download, and delete", () => {
     expect(result.detectedMime).toBe("image/jpeg");
     expect(result.previewPolicy).toBe("inline");
     expect(result.deleteToken.length).toBeGreaterThan(40);
+    expect(result.deleteUrl).toBe(
+      `https://upload.example.test/delete/${result.id}#token=${result.deleteToken}`,
+    );
     const storedFile = await env.DB.prepare("SELECT object_key FROM files WHERE id = ?1")
       .bind(result.id)
       .first<{ object_key: string }>();
@@ -453,7 +457,7 @@ describe("upload, preview, download, and delete", () => {
     const { result } = await upload("delete-me.jpg", bytes, "image/jpeg");
     const request = () =>
       exports.default.fetch(
-        new Request(`https://upload.example.test/api/files/${result.id}`, {
+        new Request(`https://upload.example.test/api/delete/${result.id}`, {
           method: "DELETE",
           headers: { Authorization: `DeleteToken ${result.deleteToken}` },
         }),
@@ -465,6 +469,52 @@ describe("upload, preview, download, and delete", () => {
       .bind(result.id)
       .first<{ object_key: string }>();
     expect(await env.FILES.head(file?.object_key ?? "missing")).toBeNull();
+  });
+
+  it("treats an administrator-first deletion as an already completed capability deletion", async () => {
+    const { result } = await upload(
+      "admin-deleted-first.jpg",
+      new Uint8Array([0xff, 0xd8, 0xff, 0xd9]),
+      "image/jpeg",
+    );
+    const adminCookie = await createTestAdminSession();
+    const adminDelete = await exports.default.fetch(
+      new Request(`https://upload.example.test/api/admin/files/${result.id}`, {
+        method: "DELETE",
+        headers: { Cookie: adminCookie, Origin: TEST_UPLOAD_ORIGIN },
+      }),
+    );
+    expect(adminDelete.status).toBe(204);
+
+    const capabilityDelete = await exports.default.fetch(
+      new Request(`https://upload.example.test/api/delete/${result.id}`, {
+        method: "DELETE",
+        headers: { Authorization: `DeleteToken ${result.deleteToken}` },
+      }),
+    );
+    expect(capabilityDelete.status).toBe(204);
+  });
+
+  it("rejects a well-formed token that belongs to a different file", async () => {
+    const first = await upload("first.jpg", new Uint8Array([0xff, 0xd8, 0xff, 0xd9]), "image/jpeg");
+    const second = await upload(
+      "second.jpg",
+      new Uint8Array([0xff, 0xd8, 0xff, 0xd9]),
+      "image/jpeg",
+    );
+
+    const response = await exports.default.fetch(
+      new Request(`https://upload.example.test/api/delete/${first.result.id}`, {
+        method: "DELETE",
+        headers: { Authorization: `DeleteToken ${second.result.deleteToken}` },
+      }),
+    );
+    expect(response.status).toBe(403);
+    expect(
+      await env.DB.prepare("SELECT status FROM files WHERE id = ?1")
+        .bind(first.result.id)
+        .first<{ status: string }>(),
+    ).toEqual({ status: "active" });
   });
 
   it("does not route the direct R2 CDN hostname through the Worker", async () => {

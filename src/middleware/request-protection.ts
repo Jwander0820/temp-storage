@@ -56,6 +56,16 @@ export const publicFileRateLimitMiddleware = createMiddleware<AppEnv>(async (con
   await next();
 });
 
+export const deleteMutationRateLimitMiddleware = createMiddleware<AppEnv>(async (context, next) => {
+  const { success } = await context.env.DELETE_MUTATION_RATE_LIMITER.limit({
+    key: remoteIp(context),
+  });
+  if (!success) {
+    rejectRateLimited(context, "delete_mutation.rate_limited", "刪除要求過於頻繁，請稍後再試。");
+  }
+  await next();
+});
+
 export const uploadMutationRateLimitMiddleware = createMiddleware<AppEnv>(async (context, next) => {
   const { success } = await context.env.UPLOAD_MUTATION_RATE_LIMITER.limit({
     key: remoteIp(context),

@@ -21,7 +21,7 @@
     "db:migrate:remote": "cross-env XDG_CONFIG_HOME=.wrangler/xdg wrangler d1 migrations apply DB --remote",
     "dev": "concurrently -k -n client,worker -c blue,green \"pnpm dev:client\" \"pnpm dev:worker\"",
     "dev:client": "vite build --watch",
-    "dev:worker": "cross-env XDG_CONFIG_HOME=.wrangler/xdg wrangler dev --test-scheduled --port 8976 --local-upstream localhost",
+    "dev:worker": "cross-env XDG_CONFIG_HOME=.wrangler/xdg wrangler dev --test-scheduled --port 8976 --local-upstream localhost:8976",
     "deploy": "pnpm build:client && cross-env XDG_CONFIG_HOME=.wrangler/xdg wrangler deploy",
     "deploy:cloudflare": "pnpm db:migrate:remote && cross-env XDG_CONFIG_HOME=.wrangler/xdg wrangler deploy",
     "format": "prettier --write .",

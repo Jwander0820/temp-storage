@@ -12,19 +12,19 @@
 
 本節覆蓋下方 2026-08-29 唯讀盤點中的舊狀態；原始發現保留作為決策與驗收依據。
 
-| 項目                             | 目前狀態       | 證據／待辦                                                                                                             |
-| -------------------------------- | -------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| F-01 上傳提交狀態機              | 已修正         | commit 前後失敗與 blocked type 回歸測試通過                                                                            |
-| F-02 cleanup fatal path          | 已修正         | fatal run 終結、finalization 失敗保留根因測試通過                                                                      |
-| F-03 Turnstile local-only        | 已修正         | 非 local origin 與錯誤 secret 均在 Siteverify 前 fail closed                                                           |
-| F-04 CSP                         | 部分完成       | public URL origin/path allowlist 已完成；enforced header 仍等待 production 觀察或 owner 限期風險接受                   |
-| F-05 bindings／required secrets  | 已修正         | `secrets.required`、generated Env、optional supplement 與 `workers_dev: false` 已同步                                  |
-| F-06 CI／branch protection       | 已完成         | PR #1 與 merge commit 的 GitHub Actions 全綠；`main` 已要求 PR、`check` 與 conversation resolution                  |
-| F-07 Cloudflare production state | 已驗證         | 正式 deployment、D1 migration、Access 與 edge baseline 已核對；規則門檻與告警細節只記錄於私人 Operations 筆記       |
-| F-08 前端 URL                    | 已修正         | download 與 preview scheme/origin/path/query 回歸測試通過                                                              |
-| F-09 reconciliation budget       | 已修正         | migration `0011` 保存 phase/cursor，超過單次頁數預算可跨 invocation 續跑                                               |
-| F-10 公開治理                    | 已完成         | CI、SECURITY、CONTRIBUTING 與 README self-host／產品限制已新增，並已透過 `develop` 的 PR #1 驗證                        |
-| 公開候選驗證                     | 已通過         | 本機與 GitHub Actions 的 `pnpm check` 全綠；production audit、CodeQL、Secret Scanning 與 Dependabot 無 open alerts     |
+| 項目                             | 目前狀態 | 證據／待辦                                                                                                         |
+| -------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------ |
+| F-01 上傳提交狀態機              | 已修正   | commit 前後失敗與 blocked type 回歸測試通過                                                                        |
+| F-02 cleanup fatal path          | 已修正   | fatal run 終結、finalization 失敗保留根因測試通過                                                                  |
+| F-03 Turnstile local-only        | 已修正   | 非 local origin 與錯誤 secret 均在 Siteverify 前 fail closed                                                       |
+| F-04 CSP                         | 部分完成 | public URL origin/path allowlist 已完成；enforced header 仍等待 production 觀察或 owner 限期風險接受               |
+| F-05 bindings／required secrets  | 已修正   | `secrets.required`、generated Env、optional supplement 與 `workers_dev: false` 已同步                              |
+| F-06 CI／branch protection       | 已完成   | PR #1 與 merge commit 的 GitHub Actions 全綠；`main` 已要求 PR、`check` 與 conversation resolution                 |
+| F-07 Cloudflare production state | 已驗證   | 正式 deployment、D1 migration、Access 與 edge baseline 已核對；規則門檻與告警細節只記錄於私人 Operations 筆記      |
+| F-08 前端 URL                    | 已修正   | download 與 preview scheme/origin/path/query 回歸測試通過                                                          |
+| F-09 reconciliation budget       | 已修正   | migration `0011` 保存 phase/cursor，超過單次頁數預算可跨 invocation 續跑                                           |
+| F-10 公開治理                    | 已完成   | CI、SECURITY、CONTRIBUTING 與 README self-host／產品限制已新增，並已透過 `develop` 的 PR #1 驗證                   |
+| 公開候選驗證                     | 已通過   | 本機與 GitHub Actions 的 `pnpm check` 全綠；production audit、CodeQL、Secret Scanning 與 Dependabot 無 open alerts |
 
 使用者已明確決定保留既有 Git history，並已授權及完成 PR #1 合併、Cloudflare 自動 migration／deployment 與 repository 公開。未執行 history rewrite、手動重複 deployment 或例行 pepper 輪替。
 
@@ -158,7 +158,7 @@ P0 資料一致性、部署與治理缺口已修正，候選 commit、merge comm
 | ---- | ------ | ------------------------------------------------------------------------------------- | ----------------------------------------------------- | -------------- |
 | F-01 | 高     | D1 已完成上傳提交後，後續錯誤仍可能刪除 R2 object                                     | 形成 active metadata 指向不存在物件，配額仍占用       | 必須           |
 | F-02 | 中     | cleanup 在頂層失敗時可能讓 cleanup_runs 永久停在 running                              | 清理可觀測性失真，歷史紀錄無法依規則清除              | 建議同批完成   |
-| F-03 | 中     | TURNSTILE_TEST_MODE 未限制為本機 origin                                               | 正式環境誤設時會略過 hostname／action 驗證            | 必須           |
+| F-03 | 中     | 官方 Turnstile 測試 secret 未限制為本機 origin                                        | 正式環境誤設時會略過 hostname／action 驗證            | 必須           |
 | F-04 | 中     | CSP 仍為 Report-Only                                                                  | 若未來出現前端注入，瀏覽器不會強制攔截                | 完成觀察後強制 |
 | F-05 | 中     | secret binding 型別同時由生成 Env 與手寫介面維護，且 wrangler 未宣告 required secrets | CI／本機型別可能因 .dev.vars 狀態漂移                 | 必須           |
 | F-06 | 中     | 無 GitHub Actions，main／develop 都未保護                                             | 無法證明公開候選 commit 通過檢查，也容易直接推壞 main | 必須           |
@@ -237,7 +237,7 @@ objectStored 在 R2 put 成功後變成 true。completeUpload 完成 D1 提交�
    - IP_HASH_PEPPER
    - ADMIN_TOKEN
 2. UPLOAD_ACCESS_CODE 保持選用，不得因 required 宣告而強迫所有部署啟用第二道密碼。
-3. TURNSTILE_TEST_MODE 只允許 local development；UPLOAD_ORIGIN 為正式或任意非 localhost／127.0.0.1／::1 origin 時必須 fail closed。
+3. 官方 Turnstile 測試 secret 只允許 local development；UPLOAD_ORIGIN 為正式或任意非 localhost／127.0.0.1／::1 origin 時必須 fail closed。
 4. 生成的 Env 是 Cloudflare binding 型別的唯一主要來源；移除 SecretBindings 對相同 required key 的重複宣告。
 5. 若 Wrangler 對選用 binding 無法產生精確 optional type，只建立最小範圍的型別補充，不能再把所有 secret 手寫一次。
 6. 明確加入 workers_dev: false。若目前 Wrangler schema 支援並符合部署策略，再顯式停用 preview URLs。
@@ -504,7 +504,7 @@ Repository visibility 切回 Private 不能撤回已被 clone 的原始碼，因
 
 - [x] F-01 已修正且有 commit 前／後失敗回歸測試。
 - [x] Cleanup fatal path 不再留下永久 running 紀錄。
-- [x] TURNSTILE_TEST_MODE 非本機 fail closed。
+- [x] 官方 Turnstile 測試 secret 非本機 fail closed。
 - [x] Wrangler required secrets 與生成 Env 型別無漂移。
 - [x] workers.dev 明確停用。
 - [x] GitHub Actions 在 PR #1 候選 SHA 完整 pnpm check 全綠。

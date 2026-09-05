@@ -1,7 +1,7 @@
 # Cloudflare R2 邊緣防護指南
 
 > 狀態：公開操作原則
-> 最後更新：2026-08-29
+> 最後更新：2026-09-04
 > 適用範圍：使用 Cloudflare Worker、R2 Custom Domain 與公開 CDN 的部署
 
 本文件說明如何設計 R2 CDN 的 WAF、Cache、Rate Limiting、HTTPS 與成本護欄。它不記錄任何正式環境的
@@ -85,6 +85,8 @@ R2 刪除具有強一致性，但 edge 已快取內容可能保留到 TTL 到期
 Rate Limiting Rule 應先從 Security Analytics 取得正常尖峰，再決定 hostname、path、計數特徵、週期與門檻。
 公開文件不保存正式門檻，因為它會隨檔案數量、影音 Range、共享 NAT、快取行為與使用模式改變。
 
+上傳者刪除使用獨立的 `/api/delete/*` path，讓外層規則能只保護匿名破壞性 mutation，不必連同公開 metadata GET 一起限流。Worker 內仍須保留專屬 Rate Limiting binding：平台的一般 DDoS 防護不等於 endpoint 嘗試次數限制，而 Worker binding 又是 location-local、寬鬆且最終一致，兩層處理的成本與精確度不同。外層規則仍應先以 Log 觀察正常批次刪除與共享 NAT，再決定 Block 或 Challenge；不要讓互動 Challenge 套到圖片／影片子資源。
+
 設定前必須確認帳號方案實際支援：
 
 - expression 可使用哪些欄位；
@@ -150,14 +152,14 @@ curl.exe -I "https://<upload-host>/api/health"
 
 依服務 contract 驗證：
 
-| 檢查 | 預期 |
-| ---- | ---- |
-| GET／HEAD | 正常讀取；可快取內容後續為 HIT 或 REVALIDATED |
-| Query string | 不使用 query 的 CDN contract 應在 edge 拒絕 |
-| 非預期 method | 應在到達 R2 或 Worker 前拒絕 |
-| Range | 不被 WAF 誤擋，依內容回 206 或正常可讀回應 |
-| Private／download-only | 不成為可重複使用的 public cache HIT |
-| Security Events | 可看到受控阻擋測試，且一般頁面沒有誤擋 |
+| 檢查                   | 預期                                          |
+| ---------------------- | --------------------------------------------- |
+| GET／HEAD              | 正常讀取；可快取內容後續為 HIT 或 REVALIDATED |
+| Query string           | 不使用 query 的 CDN contract 應在 edge 拒絕   |
+| 非預期 method          | 應在到達 R2 或 Worker 前拒絕                  |
+| Range                  | 不被 WAF 誤擋，依內容回 206 或正常可讀回應    |
+| Private／download-only | 不成為可重複使用的 public cache HIT           |
+| Security Events        | 可看到受控阻擋測試，且一般頁面沒有誤擋        |
 
 每項 Dashboard 變更套用後立即執行最小驗證。全部完成後再觀察至少 24 小時與一週，確認 cache hit ratio、
 R2 operations、Worker／D1 用量及 Security Events 沒有異常。

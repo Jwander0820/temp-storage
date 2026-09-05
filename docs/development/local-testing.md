@@ -1,7 +1,7 @@
 # 本機測試流程
 
 > 狀態：現行流程  
-> 最後更新：2026-08-27
+> 最後更新：2026-09-05
 
 這份流程用來驗證管理頁、邀請、共享檔案瀏覽、上傳、預覽、下載、配額與撤銷行為。Wrangler 在本機以
 workerd／Miniflare 執行 Worker，D1 與 R2 都使用 `.wrangler/` 內的本機狀態，不會修改正式
@@ -13,9 +13,11 @@ Cloudflare 資源。
 
 - 本機 `ADMIN_TOKEN`、`DELETE_TOKEN_PEPPER`、`IP_HASH_PEPPER`
 - Cloudflare 官方 always-pass Turnstile 測試 site key 與 secret
-- `TURNSTILE_TEST_MODE=true`
 - `UPLOAD_ORIGIN=http://localhost:8976`
 - `CDN_ORIGIN=http://localhost:8976`
+
+Worker 會在 official always-pass secret 與 localhost origin 同時成立時自動辨識本機測試模式；
+官方測試 secret 若搭配非本機 origin，會直接 fail closed。
 
 不要把 `.dev.vars` 加入 Git，也不要用範例檔直接覆寫既有 secrets。
 
@@ -38,6 +40,10 @@ pnpm dev
 終端顯示 `Ready on http://127.0.0.1:8976` 後，開啟
 `http://localhost:8976/admin`。終端需保持執行。
 
+`dev:worker` 的 `--local-upstream localhost:8976` 必須保留 port，與 `UPLOAD_ORIGIN` 一致。
+Wrangler 開發代理會依 upstream 改寫 Origin header；若只寫 `localhost`，同源的管理操作也會
+被改成 `Origin: http://localhost`，觸發 `request.origin_rejected` 並回覆 403。
+
 ## 手動驗證
 
 1. 使用 `.dev.vars` 的本機 `ADMIN_TOKEN` 登入。
@@ -56,7 +62,21 @@ pnpm dev
 13. 以 375px 手機 viewport 驗證單欄清單、載入更多、單檔頁與刪除確認都不會水平溢出。
 14. 建立多個 admin session 後執行「登出所有管理裝置」，確認目前與其他裝置都回到管理 token gate，`/api/session/capabilities` 回傳 `admin: false`。
 
-## 本機資料位置
+## 上傳者刪除連結驗收
+
+1. 批次上傳至少兩個可拋棄的測試檔，確認每個成功項目都有不同的「複製刪除連結」。
+2. 匯出刪除連結文字清單，核對檔名與成功項目一一對應；失敗或尚未完成的項目不應出現在清單。
+3. 在未登入的無痕視窗開啟完整刪除連結，確認會先顯示檔名與確認按鈕，單純開啟不會刪檔。
+4. 確認刪除後重新開啟同一連結，應顯示檔案已不存在；另測試管理員先刪除的情境。
+5. 缺少或格式錯誤的 fragment 應顯示連結不完整；格式正確但不屬於該檔的 token 必須被後端拒絕。
+6. 重新整理上傳頁後確認無法重新取得明文刪除 token；先前匯出的清單仍可使用。
+7. 管理員在 `127.0.0.1:8976/files` 登入有效時，確認設定為 `localhost` 的下載連結不會使清單出現 `Invalid download URL.`。
+
+各頁解析檔案或刪除連結前必須先載入 `/api/config`，並依 `uploadOrigin`／`cdnOrigin` 驗證 URL。
+`localhost` 與 `127.0.0.1` 的 Cookie 不共用，日常測試仍統一使用 `localhost:8976`。
+刪除 API 的 429、重複刪除與錯誤 token 使用自動測試驗證，不需要對正式入口發送大量要求。
+
+## 本機資料位置與檢查
 
 - D1 與 R2 狀態根目錄：`.wrangler/state/v3/`
 - R2 bucket blobs：`.wrangler/state/v3/r2/cdn/blobs/`

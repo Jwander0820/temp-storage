@@ -1,7 +1,7 @@
 # 執行參數與服務限制
 
 > 狀態：現行參考文件  
-> 最後更新：2026-08-28
+> 最後更新：2026-09-04
 > 用途：查詢非秘密 runtime 參數、預設限制與秘密名稱
 
 正式非秘密參數集中在 [`../../wrangler.jsonc`](../../wrangler.jsonc) 的 `vars`。Worker 啟動時由 `src/env.ts` 驗證型別與參數關係；設定錯誤會 fail closed，不會靜默改用硬編碼值。
@@ -25,6 +25,7 @@
 | Admin 登入限流     |   每 IP 每分鐘 5 次 |
 | 邀請交換限流       |  每 IP 每分鐘 20 次 |
 | 公開單檔限流       | 每 IP 每分鐘 300 次 |
+| 刪除 mutation 限流 |  每 IP 每分鐘 20 次 |
 | 上傳 mutation 限流 | 每 IP 每分鐘 120 次 |
 | Cleanup 紀錄保留   |               30 天 |
 | 邀請歷史保留       |               90 天 |
@@ -117,21 +118,22 @@ ADMIN_TOKEN
 UPLOAD_ACCESS_CODE
 ```
 
-`TURNSTILE_TEST_MODE=true` 是只放在本機環境的測試旗標，不是正式 secret；只有搭配官方測試 secret 才可啟用。任何 secret 都不得寫入 `wrangler.jsonc`、Git、前端、文件或 log。
+本機若同時使用 Cloudflare 官方 always-pass Turnstile 測試 secret 與 localhost origin，Worker 會自動辨識測試模式；官方測試 secret 若搭配非本機 origin，會直接 fail closed。任何 secret 都不得寫入 `wrangler.jsonc`、Git、前端、文件或 log。
 
 `ADMIN_TOKEN` 是只供 `POST /api/admin/session` 使用的 bootstrap credential，不是 Admin API master key。程式要求 43–512 個 URL-safe 字元；正式值應以 `python -c "import secrets; print(secrets.token_urlsafe(32))"` 產生並放入 Worker secret。其他 `/api/admin/*` 只接受有效 admin session。
 
 ## Rate Limiting bindings
 
-| Binding                            | 限制         | Key                                                   |
-| ---------------------------------- | ------------ | ----------------------------------------------------- |
-| `FILE_BROWSER_RATE_LIMITER`        | 120 次／分鐘 | invitation/admin session principal                    |
-| `ADMIN_LOGIN_RATE_LIMITER`         | 5 次／分鐘   | `CF-Connecting-IP`；本機使用固定開發 key              |
-| `INVITATION_EXCHANGE_RATE_LIMITER` | 20 次／分鐘  | `CF-Connecting-IP`；在 JSON 與 Turnstile 前執行       |
-| `PUBLIC_FILE_RATE_LIMITER`         | 300 次／分鐘 | `CF-Connecting-IP`；metadata、刪除、Worker 預覽與下載 |
-| `UPLOAD_MUTATION_RATE_LIMITER`     | 120 次／分鐘 | `CF-Connecting-IP`；reserve 與 raw upload PUT         |
+| Binding                            | 限制         | Key                                             |
+| ---------------------------------- | ------------ | ----------------------------------------------- |
+| `FILE_BROWSER_RATE_LIMITER`        | 120 次／分鐘 | invitation/admin session principal              |
+| `ADMIN_LOGIN_RATE_LIMITER`         | 5 次／分鐘   | `CF-Connecting-IP`；本機使用固定開發 key        |
+| `INVITATION_EXCHANGE_RATE_LIMITER` | 20 次／分鐘  | `CF-Connecting-IP`；在 JSON 與 Turnstile 前執行 |
+| `PUBLIC_FILE_RATE_LIMITER`         | 300 次／分鐘 | `CF-Connecting-IP`；metadata、Worker 預覽與下載 |
+| `UPLOAD_MUTATION_RATE_LIMITER`     | 120 次／分鐘 | `CF-Connecting-IP`；reserve 與 raw upload PUT   |
+| `DELETE_MUTATION_RATE_LIMITER`     | 20 次／分鐘  | `CF-Connecting-IP`；DeleteToken mutation        |
 
-所有 binding 必須使用不同 namespace。管理員登入與邀請交換限流都在 Turnstile 前執行；公開單檔與上傳 mutation 限流則在 D1 與 R2 操作前執行。上傳門檻允許前端正常的 10 檔批次與 2 個平行上傳，不取代 D1 的精確額度帳本。超限一律回覆 429 與 `Retry-After: 60`。CDN Custom Domain 的直接物件流量不經 Worker，仍須使用 Cloudflare WAF／Rate Limiting Rule 保護。
+所有 binding 必須使用不同 namespace。管理員登入與邀請交換限流都在 Turnstile 前執行；公開單檔、刪除與上傳 mutation 限流則在 D1 與 R2 操作前執行。刪除門檻容納一次 10 檔批次的正常刪除與少量重試；上傳門檻允許前端正常的 10 檔批次與 2 個平行上傳。這些 binding 是各 Cloudflare location 的寬鬆、最終一致成本護欄，不是精確帳本，也不取代 host/path-scoped WAF Rate Limiting Rule。超限一律回覆 429 與 `Retry-After: 60`。CDN Custom Domain 的直接物件流量不經 Worker，仍須使用 Cloudflare WAF／Rate Limiting Rule 保護。
 
 ## 歷史資料保留
 

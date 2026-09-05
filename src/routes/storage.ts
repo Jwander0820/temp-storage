@@ -25,6 +25,7 @@ storageRoutes.get("/config", (context) => {
     maxFilesPerBatch: config.clientMaxFilesPerBatch,
     maxParallelUploads: config.clientMaxParallelUploads,
     sessionTtlSeconds: config.uploadSessionTtlSeconds,
+    uploadOrigin: config.uploadOrigin,
     cdnOrigin: config.cdnOrigin,
   });
 });

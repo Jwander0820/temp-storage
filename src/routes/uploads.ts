@@ -186,8 +186,7 @@ uploadRoutes.put("/uploads/:uploadId", async (context) => {
     now,
     context.get("uploadInvitationId"),
   );
-  let phase: "claimed" | "object_stored" | "ledger_committed" | "reservation_released" =
-    "claimed";
+  let phase: "claimed" | "object_stored" | "ledger_committed" | "reservation_released" = "claimed";
 
   try {
     const peeked = await peekStream(requestBody);
@@ -231,11 +230,7 @@ uploadRoutes.put("/uploads/:uploadId", async (context) => {
       now,
     });
     phase = "ledger_committed";
-    if (
-      active === null ||
-      active.status !== "active" ||
-      active.reservation_status !== "consumed"
-    ) {
+    if (active === null || active.status !== "active" || active.reservation_status !== "consumed") {
       throw new DomainError("UPLOAD_FAILED", 500, "無法讀取已完成的檔案資料。");
     }
 
@@ -253,6 +248,7 @@ uploadRoutes.put("/uploads/:uploadId", async (context) => {
     return context.json({
       ...toPublicFile(active, getConfig(context.env)),
       deleteToken,
+      deleteUrl: `${getConfig(context.env).uploadOrigin}/delete/${active.id}#token=${deleteToken}`,
     });
   } catch (error) {
     if (phase === "ledger_committed") {
