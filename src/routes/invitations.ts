@@ -47,6 +47,8 @@ function parseExchangeInput(value: unknown): ExchangeInvitationInput {
 function invitationPayload(
   invitation: {
     readonly label: string;
+    readonly partition_id: string | null;
+    readonly partition_label: string | null;
     readonly max_files: number;
     readonly unlimited_files: 0 | 1;
     readonly max_bytes: number;
@@ -60,6 +62,8 @@ function invitationPayload(
   return {
     authenticated: true,
     label: invitation.label,
+    partitionId: invitation.partition_id,
+    partitionLabel: invitation.partition_label,
     canUpload: invitation.can_upload === 1,
     maxFiles: invitation.can_upload === 1 ? invitation.max_files : 0,
     unlimitedFiles: invitation.can_upload === 1 && invitation.unlimited_files === 1,

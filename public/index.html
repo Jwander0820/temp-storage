@@ -106,9 +106,9 @@
         </section>
 
         <section id="uploadWorkspace" class="workspace is-hidden" aria-labelledby="upload-title">
-          <aside class="shared-warning" aria-label="共享暫存區提醒">
-            <strong>這是共享暫存區</strong>
-            <span>上傳內容可能被其他受邀者看到，請勿上傳私密資料。</span>
+          <aside class="shared-warning" aria-label="檔案分享提醒">
+            <strong>請留意檔案分享範圍</strong>
+            <span>檔案會存入憑證所屬分區；取得單檔分享連結的人仍可開啟或下載。</span>
           </aside>
           <div class="invitation-summary">
             <div>
@@ -186,13 +186,13 @@
         <header class="files-hero">
           <div>
             <h1 id="files-title">所有檔案</h1>
-            <p>所有受邀者都能瀏覽目前有效的暫存檔案。檔案到期或刪除後會從這裡消失。</p>
+            <p>瀏覽你有權查看的共用區與私密分區。檔案到期或刪除後會從這裡消失。</p>
           </div>
         </header>
 
-        <aside class="shared-warning shared-warning--prominent" aria-label="共享暫存區提醒">
-          <strong>請只分享可公開交換的內容</strong>
-          <span>這是共享暫存區；上傳內容可能被其他受邀者看到，請勿上傳私密資料。</span>
+        <aside class="shared-warning shared-warning--prominent" aria-label="檔案分享提醒">
+          <strong>分享連結可直接開啟</strong>
+          <span>共用區對所有受邀者可見；私密區只向該區憑證持有者及管理員列出檔案。</span>
         </aside>
 
         <section id="filesInviteGate" class="invitation-gate is-hidden" aria-live="polite">
@@ -203,6 +203,17 @@
         </section>
 
         <div id="filesWorkspace" class="files-workspace is-hidden">
+          <label class="form-field partition-filter">
+            <span>瀏覽分區</span>
+            <select
+              id="filePartitionSelect"
+              name="partition"
+              aria-describedby="partitionBrowseHint"
+            ></select>
+          </label>
+          <p id="partitionBrowseHint" class="muted">
+            私密分區僅列出授權檔案；持有單檔分享連結的人仍可開啟。
+          </p>
           <aside id="adminFilesNotice" class="admin-files-notice is-hidden">
             <strong>管理員模式</strong>
             <span>你可以瀏覽所有有效檔案，並直接執行刪除。</span>
@@ -306,7 +317,25 @@
             </div>
             <form id="inviteForm" class="invite-form">
               <label class="form-field form-field--wide">
-                <span>標籤</span>
+                <span>存放分區</span>
+                <select
+                  id="invitePartitionSelect"
+                  name="partition"
+                  aria-describedby="invitePartitionHint"
+                >
+                  <option value="shared">共用暫存區</option>
+                  <option value="new">建立新的私密分區</option>
+                </select>
+              </label>
+              <label id="newPartitionNameField" class="form-field form-field--wide is-hidden">
+                <span>新私密分區名稱</span>
+                <input id="newPartitionNameInput" name="partitionLabel" maxlength="80" disabled />
+              </label>
+              <p id="invitePartitionHint" class="form-field--wide" aria-live="polite">
+                一般邀請使用共用暫存區。
+              </p>
+              <label class="form-field form-field--wide">
+                <span>憑證標籤／上傳者名稱</span>
                 <input id="inviteLabelInput" name="label" maxlength="80" required />
               </label>
               <fieldset class="invitation-mode form-field--wide">
@@ -398,6 +427,30 @@
             </div>
           </section>
 
+          <section class="invitation-ledger" aria-labelledby="private-partitions-title">
+            <div class="section-heading"><h2 id="private-partitions-title">私密分區</h2></div>
+            <p>
+              同區憑證共用期限與累計上傳額度。到期、刪除分區或撤銷最後一張憑證後，該區檔案會刪除。
+            </p>
+            <div class="invitation-groups">
+              <div id="privatePartitionList" class="invitation-list" aria-live="polite">
+                正在讀取私密分區。
+              </div>
+              <details id="privatePartitionHistory" class="invitation-group is-hidden">
+                <summary>
+                  <span>
+                    <span class="invitation-group__title">歷史分區</span>
+                    <span id="privatePartitionHistoryCount" class="count-badge">0</span>
+                  </span>
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="m7.5 9.5 4.5 4.5 4.5-4.5" />
+                  </svg>
+                </summary>
+                <p class="invitation-group__hint">已關閉且檔案清理完成，無法復原。</p>
+                <ul id="privatePartitionHistoryList" class="partition-history" role="list"></ul>
+              </details>
+            </div>
+          </section>
           <section class="invitation-ledger" aria-labelledby="invitation-list-title">
             <div class="section-heading">
               <div>

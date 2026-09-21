@@ -227,7 +227,7 @@ uploadRoutes.put("/uploads/:uploadId", async (context) => {
       detectedMime: classification.detectedMime,
       previewPolicy: classification.previewPolicy,
       deleteTokenHash,
-      now,
+      now: Math.floor(Date.now() / 1000),
     });
     phase = "ledger_committed";
     if (active === null || active.status !== "active" || active.reservation_status !== "consumed") {

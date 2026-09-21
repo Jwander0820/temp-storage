@@ -17,7 +17,7 @@ const UPLOAD_RECORD_SELECT = `SELECT
   r.status AS reservation_status,
   r.expires_at AS reservation_expires_at,
   r.quota_released_at
-FROM files f
+FROM effective_files f
 JOIN upload_reservations r ON r.file_id = f.id
 WHERE r.id = ?1`;
 
@@ -46,7 +46,7 @@ export async function claimUpload(
        WHERE id = (
          SELECT file_id
          FROM upload_reservations reservation
-         JOIN upload_invitations invitation ON invitation.id = reservation.invitation_id
+         JOIN effective_invitations invitation ON invitation.id = reservation.invitation_id
          WHERE reservation.id = ?1
            AND reservation.status = 'reserved'
            AND reservation.expires_at > ?2
@@ -159,6 +159,10 @@ export async function completeUpload(
                AND r.status = 'reserved'
                AND r.quota_released_at IS NULL
                AND f.status = 'uploading'
+               AND EXISTS (
+                 SELECT 1 FROM effective_invitations i WHERE i.id = f.invitation_id
+                   AND i.status = 'active' AND i.expires_at > ?2 AND i.can_upload = 1
+               )
            )`,
       )
       .bind(input.sizeBytes, input.now, input.uploadId),
@@ -169,7 +173,12 @@ export async function completeUpload(
              quota_released_at = ?1
          WHERE id = ?2
            AND status = 'reserved'
-           AND quota_released_at IS NULL`,
+           AND quota_released_at IS NULL
+           AND EXISTS (
+             SELECT 1 FROM files f JOIN effective_invitations i ON i.id = f.invitation_id
+             WHERE f.id = upload_reservations.file_id AND f.status = 'uploading'
+               AND i.status = 'active' AND i.expires_at > ?1 AND i.can_upload = 1
+           )`,
       )
       .bind(input.now, input.uploadId),
     database
@@ -208,7 +217,10 @@ export async function listExpiredReservations(
       `SELECT *
        FROM upload_reservations
        WHERE status = 'reserved'
-         AND expires_at <= ?1
+         AND (expires_at <= ?1 OR invitation_id IN (
+           SELECT id FROM effective_invitations
+           WHERE partition_id IS NOT NULL AND (status = 'revoked' OR expires_at <= ?1)
+         ))
        ORDER BY expires_at
        LIMIT ?2`,
     )

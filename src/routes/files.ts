@@ -13,6 +13,7 @@ import { deleteFileWithToken } from "../services/deletion-service";
 import { browseActiveFiles, type BrowseFileType } from "../services/file-browser-service";
 import { toPublicFile } from "../services/file-service";
 import { isFileId, isRandomToken32 } from "../utils/hash";
+import { listPartitions } from "../repositories/partition-repository";
 
 export const fileRoutes = new Hono<AppEnv>();
 
@@ -27,13 +28,29 @@ fileRoutes.get(
       throw new DomainError("INVALID_REQUEST", 400, "limit 格式不正確。");
     }
     const type = (context.req.query("type") ?? "all") as BrowseFileType;
+    const admin = context.get("fileBrowserPrincipalId") === "admin";
+    const ownPartition = context.get("fileBrowserPartitionId") ?? null;
+    const partition =
+      context.req.query("partition") ?? (admin ? "all" : (ownPartition ?? "shared"));
+    if (!admin && partition !== "shared" && partition !== ownPartition) {
+      throw new DomainError("INVITATION_INVALID", 403, "此邀請無法瀏覽該分區。");
+    }
     const result = await browseActiveFiles(context.env.DB, getConfig(context.env), {
       now: Math.floor(Date.now() / 1000),
       cursor: context.req.query("cursor") ?? null,
       limit: Number(limitValue),
       type,
+      partition,
+      admin,
     });
-    return context.json(result);
+    const partitions = admin
+      ? (await listPartitions(context.env.DB, Math.floor(Date.now() / 1000)))
+          .filter((p) => p.status === "active" && p.expires_at > Date.now() / 1000)
+          .map((p) => ({ id: p.id, label: p.label }))
+      : ownPartition === null
+        ? []
+        : [{ id: ownPartition, label: context.get("fileBrowserPartitionLabel") }];
+    return context.json({ ...result, partition, partitions });
   },
 );
 

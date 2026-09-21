@@ -5,6 +5,7 @@ import type {
   UploadInvitation,
 } from "../domain/invitation";
 import { DomainError } from "../domain/errors";
+import { closePartitionStatement } from "./partition-repository";
 
 export interface CreateInvitationInput {
   readonly id: string;
@@ -16,6 +17,7 @@ export interface CreateInvitationInput {
   readonly canUpload: boolean;
   readonly createdAt: number;
   readonly expiresAt: number;
+  readonly partitionId?: string | null;
 }
 
 export interface CreateSessionInput {
@@ -33,8 +35,11 @@ const invitationSummarySql = `
     i.*,
     COUNT(e.id) AS used_files,
     COALESCE(SUM(e.size_bytes), 0) AS used_bytes
-  FROM upload_invitations i
-  LEFT JOIN rate_limit_events e ON e.invitation_id = i.id
+  FROM effective_invitations i
+  LEFT JOIN rate_limit_events e ON e.invitation_id IN (
+    SELECT member.id FROM upload_invitations member
+    WHERE member.id = i.id OR (i.partition_id IS NOT NULL AND member.partition_id = i.partition_id)
+  )
 `;
 
 export async function createInvitation(
@@ -45,8 +50,8 @@ export async function createInvitation(
     .prepare(
       `INSERT INTO upload_invitations (
          id, token_hash, label, status, max_files, unlimited_files, max_bytes, can_upload,
-         created_at, expires_at
-       ) VALUES (?1, ?2, ?3, 'active', ?4, ?5, ?6, ?7, ?8, ?9)`,
+         created_at, expires_at, partition_id
+       ) VALUES (?1, ?2, ?3, 'active', ?4, ?5, ?6, ?7, ?8, ?9, ?10)`,
     )
     .bind(
       input.id,
@@ -58,6 +63,7 @@ export async function createInvitation(
       input.canUpload ? 1 : 0,
       input.createdAt,
       input.expiresAt,
+      input.partitionId ?? null,
     )
     .run();
 }
@@ -70,7 +76,7 @@ export async function getInvitationByTokenHash(
   return database
     .prepare(
       `SELECT i.*
-       FROM upload_invitations i
+       FROM effective_invitations i
        LEFT JOIN upload_invitation_tokens token ON token.invitation_id = i.id
        WHERE (i.token_hash = ?1 OR token.token_hash = ?1)
          AND i.status = 'active'
@@ -93,7 +99,7 @@ export async function createSession(
        SELECT ?1, ?2, ?3, ?4, ?5
        WHERE EXISTS (
          SELECT 1
-         FROM upload_invitations
+         FROM effective_invitations
          WHERE id = ?3
            AND status = 'active'
            AND expires_at >= ?5
@@ -124,8 +130,11 @@ export async function getSessionByTokenHash(
          COUNT(e.id) AS used_files,
          COALESCE(SUM(e.size_bytes), 0) AS used_bytes
        FROM upload_sessions s
-       JOIN upload_invitations i ON i.id = s.invitation_id
-       LEFT JOIN rate_limit_events e ON e.invitation_id = i.id
+       JOIN effective_invitations i ON i.id = s.invitation_id
+       LEFT JOIN rate_limit_events e ON e.invitation_id IN (
+         SELECT member.id FROM upload_invitations member
+         WHERE member.id = i.id OR (i.partition_id IS NOT NULL AND member.partition_id = i.partition_id)
+       )
        WHERE s.token_hash = ?1
          AND s.revoked_at IS NULL
          AND s.expires_at > ?2
@@ -174,6 +183,7 @@ export async function revokeInvitation(
          WHERE invitation_id = ?2 AND revoked_at IS NULL`,
       )
       .bind(now, invitationId),
+    closePartitionStatement(database, now),
   ]);
 }
 
@@ -190,7 +200,7 @@ export async function reissueInvitationToken(
          SET token_hash = ?1
          WHERE id = ?2
            AND status = 'active'
-           AND expires_at > ?3`,
+           AND EXISTS (SELECT 1 FROM effective_invitations v WHERE v.id = upload_invitations.id AND v.status = 'active' AND v.expires_at > ?3)`,
       )
       .bind(tokenHash, invitationId, now),
     database
@@ -199,7 +209,7 @@ export async function reissueInvitationToken(
          WHERE invitation_id = ?1
            AND EXISTS (
              SELECT 1
-             FROM upload_invitations
+             FROM effective_invitations
              WHERE id = ?1
                AND status = 'active'
                AND expires_at > ?2
@@ -231,7 +241,7 @@ export async function issueAdditionalInvitationToken(
     .prepare(
       `INSERT INTO upload_invitation_tokens (token_hash, invitation_id, created_at)
        SELECT ?1, id, ?3
-       FROM upload_invitations
+       FROM effective_invitations
        WHERE id = ?2
          AND status = 'active'
          AND expires_at > ?3`,
@@ -267,7 +277,7 @@ export async function purgeExpiredSessions(database: D1Database, now: number): P
        WHERE expires_at <= ?1
           OR revoked_at IS NOT NULL
           OR invitation_id IN (
-            SELECT id FROM upload_invitations
+            SELECT id FROM effective_invitations
             WHERE status = 'revoked' OR expires_at <= ?1
           )`,
     )
@@ -283,10 +293,14 @@ export async function purgeRetiredInvitationHistory(
 ): Promise<number> {
   const targetInvitationsSql = `
     SELECT invitation.id
-    FROM upload_invitations invitation
+    FROM effective_invitations invitation
     WHERE (
         (invitation.status = 'revoked' AND invitation.revoked_at <= ?1)
         OR invitation.expires_at <= ?1
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM private_partitions p WHERE p.id = invitation.partition_id
+          AND p.status = 'active' AND p.expires_at > ?1
       )
       AND NOT EXISTS (
         SELECT 1 FROM files WHERE files.invitation_id = invitation.id

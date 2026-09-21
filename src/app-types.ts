@@ -8,5 +8,7 @@ export interface AppEnv {
     uploadSessionId: string;
     uploadCanUpload: boolean;
     fileBrowserPrincipalId: string;
+    fileBrowserPartitionId: string | null;
+    fileBrowserPartitionLabel: string | null;
   };
 }

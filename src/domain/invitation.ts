@@ -1,6 +1,8 @@
 export type InvitationStatus = "active" | "revoked";
 
 export interface UploadInvitation {
+  readonly partition_id: string | null;
+  readonly partition_label: string | null;
   readonly id: string;
   readonly token_hash: string;
   readonly label: string;

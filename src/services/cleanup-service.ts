@@ -23,6 +23,7 @@ import {
 } from "../repositories/reconciliation-repository";
 import { listExpiredReservations, releaseReservation } from "../repositories/upload-repository";
 import { deleteFileAsAdmin } from "./deletion-service";
+import { closePartitions } from "../repositories/partition-repository";
 
 export interface CleanupResult {
   readonly scannedCount: number;
@@ -100,6 +101,7 @@ export async function runCleanup(
   console.log(JSON.stringify({ level: "info", event: "cleanup.started", runId }));
 
   try {
+    await closePartitions(env.DB, now);
     const reservations = await listExpiredReservations(env.DB, now, config.cleanupBatchLimit);
     for (const reservation of reservations) {
       try {

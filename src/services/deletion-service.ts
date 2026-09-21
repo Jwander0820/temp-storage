@@ -34,6 +34,27 @@ export async function deleteFileAsAdmin(
   if (file.status === "deleted") {
     return;
   }
+  // A closed private partition also owns any object left by a failed upload
+  // rollback. Its reservation was already released, so do not debit used_bytes.
+  if ((file.status === "failed" || file.status === "rejected") && file.partition_id) {
+    const closed = await env.DB.prepare(
+      `SELECT 1 FROM private_partitions p
+      WHERE p.id = ?1 AND p.status = 'revoked' AND NOT EXISTS (
+        SELECT 1 FROM upload_reservations r WHERE r.file_id = ?2 AND r.quota_released_at IS NULL
+      )`,
+    )
+      .bind(file.partition_id, file.id)
+      .first();
+    if (closed !== null) {
+      await env.FILES.delete(file.object_key);
+      await env.DB.prepare(
+        "UPDATE files SET status = 'deleted', deleted_at = ?1 WHERE id = ?2 AND status IN ('failed', 'rejected')",
+      )
+        .bind(now, file.id)
+        .run();
+      return;
+    }
+  }
   if (file.status !== "deleting") {
     throw new DomainError("FILE_NOT_FOUND", 404, "找不到可刪除的檔案。");
   }

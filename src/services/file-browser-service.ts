@@ -11,6 +11,8 @@ export interface BrowseFilesInput {
   readonly cursor: string | null;
   readonly limit: number;
   readonly type: BrowseFileType;
+  readonly partition?: string;
+  readonly admin?: boolean;
 }
 
 export interface BrowseFilesResult {
@@ -72,9 +74,10 @@ export async function browseActiveFiles(
   const result = await database
     .prepare(
       `SELECT *
-       FROM files INDEXED BY idx_files_browse_active
+       FROM effective_files
        WHERE status = 'active'
          AND expires_at > ?1
+         AND (?6 = 'all' OR partition_id = ?6 OR (?6 = 'shared' AND partition_id IS NULL))
          AND (
            ?2 IS NULL
            OR created_at < ?2
@@ -95,14 +98,26 @@ export async function browseActiveFiles(
        ORDER BY created_at DESC, id DESC
        LIMIT ?5`,
     )
-    .bind(input.now, cursor.createdAt, cursor.id, input.type, input.limit + 1)
+    .bind(
+      input.now,
+      cursor.createdAt,
+      cursor.id,
+      input.type,
+      input.limit + 1,
+      input.partition ?? "shared",
+    )
     .all<FileRecord>();
 
   const hasMore = result.results.length > input.limit;
   const page = hasMore ? result.results.slice(0, input.limit) : result.results;
   const last = page.at(-1);
   return {
-    files: page.map((file) => toPublicFile(file, config)),
+    files: page.map((file) => ({
+      ...toPublicFile(file, config),
+      partitionId: file.partition_id ?? null,
+      partitionLabel: file.partition_label ?? null,
+      ...(input.admin ? { uploaderLabel: file.uploader_label ?? null } : {}),
+    })),
     nextCursor: hasMore && last !== undefined ? encodeCursor(last.created_at, last.id) : null,
   };
 }

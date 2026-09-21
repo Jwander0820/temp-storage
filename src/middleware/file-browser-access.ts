@@ -19,5 +19,7 @@ export const fileBrowserAccessMiddleware = createMiddleware<AppEnv>(async (conte
   context.set("uploadInvitationId", session.id);
   context.set("uploadSessionId", session.session_id);
   context.set("fileBrowserPrincipalId", session.session_id);
+  context.set("fileBrowserPartitionId", session.partition_id);
+  context.set("fileBrowserPartitionLabel", session.partition_label);
   await next();
 });
