@@ -16,7 +16,7 @@
 | 啟動與手動測試                 | [`development/local-testing.md`](./development/local-testing.md)                               |
 | Cloudflare 資源與部署          | [`development/deployment.md`](./development/deployment.md)                                     |
 | 設計 CDN、WAF 與成本防護       | [`development/cloudflare-edge-protection.md`](./development/cloudflare-edge-protection.md)     |
-| 建立或撤銷邀請                 | [`development/invitation-management.md`](./development/invitation-management.md)               |
+| 建立／撤銷邀請與管理私密分區   | [`development/invitation-management.md`](./development/invitation-management.md)               |
 | 修正 D1 metadata retention     | [`specifications/d1-metadata-retention-fix.md`](./specifications/d1-metadata-retention-fix.md) |
 | 撰寫或拆分 commit              | [`development/commit-conventions.md`](./development/commit-conventions.md)                     |
 | 查詢 API                       | [`reference/api.md`](./reference/api.md)                                                       |

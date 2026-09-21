@@ -1,7 +1,7 @@
 # API 參考
 
 > 狀態：現行參考文件  
-> 最後更新：2026-09-05
+> 最後更新：2026-09-21
 > 用途：快速查詢路由分區、驗證能力與主要查詢參數
 
 正式入口為 `https://upload.jwander.net`。本文件提供路由導覽；request schema、錯誤碼與安全行為以 route、domain error 與測試為準。
@@ -49,6 +49,9 @@ PUT    /api/uploads/:uploadId
 - `cursor`
 - `limit`：預設 24，最大 60
 - `type`：`all`, `image`, `video`, `audio`, `other`
+- `partition`：`shared`、授權分區 ID；管理員另可用 `all`。一般邀請預設 `shared`，私密邀請預設自己的分區，管理員預設 `all`。越權查詢回覆 403。
+
+回應另含目前 `partition` 和可選 `partitions: [{id, label}]`。清單項目包含 `partitionId`、`partitionLabel`；僅管理員清單額外回傳 `uploaderLabel`。匿名單檔 API 不回傳分區名稱或上傳者標籤。
 
 清單只回傳 `active` 且未到期的安全公開欄位，使用 `created_at DESC, id DESC` keyset 分頁，固定 `private, no-store`。回應不得包含 R2 object key、invitation ID、上傳者 hash 或刪除憑證。
 
@@ -75,6 +78,9 @@ GET    /api/admin/invitations
 POST   /api/admin/invitations/:invitationId/copy
 POST   /api/admin/invitations/:invitationId/reissue
 DELETE /api/admin/invitations/:invitationId
+GET    /api/admin/partitions
+PATCH  /api/admin/partitions/:partitionId
+DELETE /api/admin/partitions/:partitionId
 POST   /api/admin/cleanup
 POST   /api/admin/reconcile
 DELETE /api/admin/files/:fileId
@@ -92,8 +98,18 @@ DELETE /api/admin/files/:fileId
 - `expiresBefore`
 - `cursor`
 - `limit`：最大 100
+- `partition`：分區 ID 或 `shared`，省略時列出全部
 
 建立邀請時可設定 label、期限、`canUpload`、檔案數與容量。`copy` 會為同一邀請新增等效連結，不撤銷舊連結或 session；`reissue` 則會使全部舊連結與相關 session 失效。明文 invitation token 只在建立、複製或重新簽發時回傳一次；D1 只保存 hash。
+
+### 私密分區 API
+
+- `POST /api/admin/invitations` 可附加 `partitionLabel`（新建分區並發第一張憑證）或 `partitionId`（在現有分區增發），兩者互斥。省略兩者維持共用邀請。增發以分區當前期限／額度為準，不修改分區；新憑證具有獨立 ID 和上傳者標籤。
+- `GET /api/admin/partitions` 回傳分區名稱、狀態、共用額度與已用量、有效憑證數及 `pendingFiles`；對關閉分區，`pendingFiles` 表示待清理的 active／deleting／reserved／uploading／failed／rejected 檔案數，包含可能有殘留物件的失敗上傳。
+- `PATCH /api/admin/partitions/:partitionId` 接受 `label`、`expiresAt`（ISO 時間）、`maxFiles`、`unlimitedFiles`、`maxBytes`。只修改有效且未到期分區，成功 204，格式錯誤 400，分區失效 409。新期限須晚於現在且不超過既有 invitation 期限上限；調整容量不要求把即將到期分區延長至少一天。額度使用既有上限，低於已用量允許但停止新上傳。
+- `DELETE /api/admin/partitions/:partitionId` 關閉分區、撤銷所有憑證與 session，最多處理 100 個檔案後回覆 202 `{status: "deleting", processed, failed}`。回應表示刪除程序已啟動，不代表全部 R2 物件已刪完；重複呼叫會繼續清理，Cron 也會接續。
+- `DELETE /api/admin/invitations/:invitationId` 對私密憑證會在同一 transaction 檢查剩餘憑證，最後一張撤銷時關閉分區並啟動清理。`copy` 增加的是同一憑證的連結，不增加獨立憑證數。
+- Invitation exchange／session 回應增加 `partitionId`、`partitionLabel`，額度與期限是分區當前共用值；無分區時兩欄為 null。
 
 `POST /api/admin/reconcile` 每次只處理 `RECONCILE_PAGE_BUDGET` 頁。回應的 `complete` 表示本輪是否完成；未完成時 `continuation` 只供管理者觀察，真正的 phase／cursor 已保存在 D1，下一次呼叫會自動接續。
 
