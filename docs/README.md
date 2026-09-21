@@ -1,7 +1,7 @@
 # 專案文件索引
 
 > 狀態：現行索引  
-> 最後更新：2026-08-29
+> 最後更新：2026-09-21
 
 這裡保存 Jwander Temp Storage 的現行架構、設計決策與開發流程。根目錄 `README.md` 負責快速啟動與部署入口；日常工作只依任務需要讀取下列現行文件。
 
@@ -22,6 +22,7 @@
 | 查詢 API                       | [`reference/api.md`](./reference/api.md)                                                       |
 | 查詢限制與環境變數             | [`reference/configuration.md`](./reference/configuration.md)                                   |
 | 評估 Cloudflare 免費額度與成本 | [`reference/cloudflare-free-tier-and-cost.md`](./reference/cloudflare-free-tier-and-cost.md)   |
+| 追蹤尚待驗證的安全維護事項     | [`specifications/security-follow-up.md`](./specifications/security-follow-up.md)               |
 
 ## 分類方式
 
@@ -105,13 +106,13 @@ Codex 的實際尋找順序與 scope 規則，以 [OpenAI 官方 AGENTS.md 文�
 
 - [`api.md`](./reference/api.md)：公開、invitation session 與 admin API 路由。
 - [`configuration.md`](./reference/configuration.md)：服務限制、非秘密 runtime 參數與 secret 名稱。
-- [`cloudflare-free-tier-and-cost.md`](./reference/cloudflare-free-tier-and-cost.md)：Workers、D1、R2 免費額度、容量換算、攻擊成本與應變護欄。
+- [`cloudflare-free-tier-and-cost.md`](./reference/cloudflare-free-tier-and-cost.md)：官方計價來源、用量量測與通用成本護欄；不公開本站的額度耗盡估算。
 
 ### Specifications
 
 - [`README.md`](./specifications/README.md)：進行中規格的狀態與封存方式。
 - [`d1-metadata-retention-fix.md`](./specifications/d1-metadata-retention-fix.md)：修正 deleted files 與 reservation foreign key 清理順序。
-- [`temp-storage-public-repository-readiness-spec-2026-08-29.md`](./specifications/temp-storage-public-repository-readiness-spec-2026-08-29.md)：公開前安全修正、CI、治理與人工閘門進度。
+- [`security-follow-up.md`](./specifications/security-follow-up.md)：CSP 候選政策與正式驗收紀錄的待辦。
 
 ### Archive
 

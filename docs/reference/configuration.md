@@ -1,7 +1,7 @@
 # 執行參數與服務限制
 
 > 狀態：現行參考文件  
-> 最後更新：2026-09-04
+> 最後更新：2026-09-21
 > 用途：查詢非秘密 runtime 參數、預設限制與秘密名稱
 
 正式非秘密參數集中在 [`../../wrangler.jsonc`](../../wrangler.jsonc) 的 `vars`。Worker 啟動時由 `src/env.ts` 驗證型別與參數關係；設定錯誤會 fail closed，不會靜默改用硬編碼值。
@@ -139,7 +139,7 @@ UPLOAD_ACCESS_CODE
 
 - 已完成的 `cleanup_runs` 保留 30 日，之後由每小時 cleanup 每批最多清除 `CLEANUP_BATCH_LIMIT` 筆。
 - `failed`／`rejected` 上傳 metadata 在建立超過 7 日且 reservation 已進入 `expired`／`cancelled`、quota 已釋放後，依 child-first 順序清除；對應額度事件仍保留。
-- 撤銷或到期邀請保留 90 日；只有在已無 `files` 與 `upload_reservations` 關聯時，才會連同 invitation token、session 與 `rate_limit_events` 依 child-first 順序移除。
+- 撤銷或到期邀請保留 90 日；只有在已無 `files` 與 `upload_reservations` 關聯，且不屬於仍有效的私密分區時，才會連同 invitation token、session 與 `rate_limit_events` 依 child-first 順序移除，避免重設同區共用額度。
 - 有效或仍被檔案 metadata 引用的 invitation，其 `rate_limit_events` 必須保留，因為這些資料同時是 invitation 檔案數與 byte 額度的終身帳本。
 
 Cleanup run 的狀態定義：沒有局部失敗為 `completed`；同一 run 同時有成功進度與局部失敗為 `partial`；沒有成功進度的局部失敗或任何頂層 fatal error 為 `failed`。`finished_at` 使用流程實際結束時間，不沿用排程開始時間。
@@ -168,7 +168,7 @@ Cleanup run 的狀態定義：沒有局部失敗為 `completed`；同一 run 同
 
 - 不提供防毒、壓縮檔內容掃描、轉碼、影像最佳化或 multipart upload。
 - 單次 request 同時受程式的 50 MiB 限制與 Cloudflare 帳號當下 request body 上限約束。
-- Reconciliation 以設定值作為單頁大小，並在同次執行使用 D1／R2 cursor 掃描完所有分頁。
+- Reconciliation 每次最多處理 `RECONCILE_PAGE_BUDGET` 頁，將 phase 與 D1／R2 cursor 存入 `reconciliation_state`。未完成時由後續排程或管理員操作接續，不保證單次掃完整個 bucket。
 - 公開預覽可能保留至 `MEDIA_PREVIEW_CACHE_SECONDS` 到期。
 - D1 的容量帳本只計算 `temp-storage/objects/`，不包含共用 `cdn` bucket 其他物件。
 - 邀請 URL 是 bearer capability；被轉傳時，其他人可在邀請有效與額度範圍內使用。

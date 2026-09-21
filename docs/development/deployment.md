@@ -1,7 +1,7 @@
 # Cloudflare 環境與部署
 
 > 狀態：現行操作文件  
-> 最後更新：2026-08-29
+> 最後更新：2026-09-21
 > 用途：建立或維護 Cloudflare 資源、Workers Builds 與正式部署
 
 日常部署優先透過 GitHub 與 Cloudflare Workers Builds 完成。只有重建環境、修復資源或自動部署無法使用時，才需要執行本文件中的手動命令。
@@ -209,7 +209,7 @@ hostname 的 HTTPS 盤點前，不使用 zone-wide HSTS；改用只匹配 `uploa
 
 ## 邊緣防護與成本護欄
 
-完整免費額度、每操作估算、denial-of-wallet 情境與每月檢查表見
+官方計價來源、用量量測方法、通用成本護欄與定期檢查表見
 [`../reference/cloudflare-free-tier-and-cost.md`](../reference/cloudflare-free-tier-and-cost.md)。
 公開的 CDN WAF、Cache、Rate Limiting、Budget Alert 與驗證原則見
 [`cloudflare-edge-protection.md`](./cloudflare-edge-protection.md)。
