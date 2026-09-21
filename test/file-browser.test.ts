@@ -201,22 +201,25 @@ describe("shared file browser", () => {
     expect((await browse()).status).toBe(401);
   });
 
+  // 121 sequential Worker/D1 requests can exceed the default 5s on shared CI runners.
   it("rate limits extreme repeated collection reads without writing upload rate events", async () => {
-    let response: Response | null = null;
-    for (let index = 0; index <= 120; index += 1) {
-      response = await browse();
+    for (let index = 0; index < 120; index += 1) {
+      const response = await browse();
+      expect(response.status).toBe(200);
+      await response.arrayBuffer();
     }
 
-    expect(response?.status).toBe(429);
-    expect(response?.headers.get("Retry-After")).toBe("60");
-    await expect(response?.json()).resolves.toMatchObject({
+    const response = await browse();
+    expect(response.status).toBe(429);
+    expect(response.headers.get("Retry-After")).toBe("60");
+    await expect(response.json()).resolves.toMatchObject({
       error: { code: "RATE_LIMITED" },
     });
     const rateEvents = await env.DB.prepare(
       "SELECT COUNT(*) AS count FROM rate_limit_events",
     ).first<{ count: number }>();
     expect(rateEvents?.count).toBe(0);
-  });
+  }, 15_000);
 
   it("lets an admin session list and delete an active file exactly once", async () => {
     vi.restoreAllMocks();
