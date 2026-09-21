@@ -8,6 +8,12 @@ import { createDefaultInvitationLabel } from "./invitation-label";
 import { createLatestRequestCoordinator } from "./latest-request";
 import { validatePublicFileUrls } from "./public-file-url";
 import QRCode from "qrcode";
+import {
+  credentialPartitionFields,
+  loadPrivatePartitions,
+  onPartitionSelectionChange,
+  updatePartitionFields,
+} from "./private-partitions";
 
 interface PublicConfig {
   readonly maxFileBytes: number;
@@ -31,6 +37,7 @@ interface StorageUsage {
 }
 
 interface InvitationSessionInfo {
+  readonly partitionLabel: string | null;
   readonly authenticated: true;
   readonly label: string;
   readonly canUpload: boolean;
@@ -46,6 +53,8 @@ interface InvitationSessionInfo {
 }
 
 interface PublicFile {
+  readonly partitionLabel: string | null;
+  readonly uploaderLabel: string | null;
   readonly id: string;
   readonly filename: string;
   readonly sizeBytes: number;
@@ -69,6 +78,8 @@ interface Reservation {
 }
 
 interface AdminInvitation {
+  readonly partitionId: string | null;
+  readonly partitionLabel: string | null;
   readonly id: string;
   readonly label: string;
   readonly status: "active" | "revoked" | "expired";
@@ -97,6 +108,8 @@ interface CreatedInvitation {
 type FileTypeFilter = "all" | "image" | "video" | "audio" | "other";
 
 interface FileListResponse {
+  readonly partition: string;
+  readonly partitions: { id: string; label: string }[];
   readonly files: PublicFile[];
   readonly nextCursor: string | null;
 }
@@ -149,6 +162,9 @@ let config: PublicConfig | null = null;
 let sharedFiles: PublicFile[] = [];
 let sharedFilesCursor: string | null = null;
 let sharedFilesType: FileTypeFilter = "all";
+let sharedFilesPartition: string | null = new URLSearchParams(window.location.search).get(
+  "partition",
+);
 const sharedFilesRequests = createLatestRequestCoordinator();
 let adminSessionActive = false;
 let pendingAdminDelete: { file: PublicFile; trigger: HTMLButtonElement } | null = null;
@@ -176,6 +192,7 @@ const filesInviteGate = elementById("filesInviteGate", HTMLElement);
 const filesWorkspace = elementById("filesWorkspace", HTMLElement);
 const adminFilesNotice = elementById("adminFilesNotice", HTMLElement);
 const fileTypeFilters = elementById("fileTypeFilters", HTMLElement);
+const filePartitionSelect = elementById("filePartitionSelect", HTMLSelectElement);
 const sharedFilesStatus = elementById("sharedFilesStatus", HTMLElement);
 const sharedFileList = elementById("sharedFileList", HTMLElement);
 const retrySharedFilesButton = elementById("retrySharedFilesButton", HTMLButtonElement);
@@ -400,6 +417,7 @@ function parseInvitationSession(value: unknown): InvitationSessionInfo {
   }
   return {
     authenticated: true,
+    partitionLabel: nullableString(value, "partitionLabel"),
     label: requiredString(value, "label"),
     canUpload: requiredBoolean(value, "canUpload"),
     maxFiles: requiredNumber(value, "maxFiles"),
@@ -440,6 +458,10 @@ function parsePublicFile(value: unknown): PublicFile {
   });
   return {
     id,
+    partitionLabel:
+      value.partitionLabel === undefined ? null : nullableString(value, "partitionLabel"),
+    uploaderLabel:
+      value.uploaderLabel === undefined ? null : nullableString(value, "uploaderLabel"),
     filename: requiredString(value, "filename"),
     sizeBytes: requiredNumber(value, "sizeBytes"),
     detectedMime: requiredString(value, "detectedMime"),
@@ -458,6 +480,13 @@ function parseFileList(value: unknown): FileListResponse {
   return {
     files: value.files.map(parsePublicFile),
     nextCursor: nullableString(value, "nextCursor"),
+    partition: requiredString(value, "partition"),
+    partitions: Array.isArray(value.partitions)
+      ? value.partitions.map((p: unknown) => {
+          if (!isRecord(p)) throw new Error("Invalid partition response.");
+          return { id: requiredString(p, "id"), label: requiredString(p, "label") };
+        })
+      : [],
   };
 }
 
@@ -509,6 +538,8 @@ function parseAdminInvitation(value: unknown): AdminInvitation {
     id: requiredString(value, "id"),
     label: requiredString(value, "label"),
     status,
+    partitionId: nullableString(value, "partitionId"),
+    partitionLabel: nullableString(value, "partitionLabel"),
     canUpload: requiredBoolean(value, "canUpload"),
     maxFiles: requiredNumber(value, "maxFiles"),
     unlimitedFiles: requiredBoolean(value, "unlimitedFiles"),
@@ -718,6 +749,8 @@ function createSharedFileCard(file: PublicFile): HTMLElement {
   const details = document.createElement("dl");
   details.className = "file-card__details";
   addDetail(details, "大小", formatBytes(file.sizeBytes));
+  addDetail(details, "分區", file.partitionLabel ?? "共用暫存區");
+  if (file.uploaderLabel) addDetail(details, "上傳者", file.uploaderLabel);
   addDetail(details, "上傳", formatDate(file.createdAt));
   addDetail(details, "到期", `${formatDate(file.expiresAt)}（${formatRemaining(file.expiresAt)}）`);
 
@@ -770,6 +803,12 @@ async function loadSharedFiles(reset: boolean): Promise<void> {
   loadMoreSharedFilesButton.disabled = true;
   sharedFilesStatus.textContent = reset ? "正在讀取共享檔案。" : "正在載入更多檔案。";
   const parameters = new URLSearchParams({ limit: "24", type: requestedType });
+  if (sharedFilesPartition !== null) parameters.set("partition", sharedFilesPartition);
+  if (reset) {
+    sharedFiles = [];
+    sharedFilesCursor = null;
+    sharedFileList.replaceChildren();
+  }
   if (requestedCursor !== null) {
     parameters.set("cursor", requestedCursor);
   }
@@ -795,6 +834,13 @@ async function loadSharedFiles(reset: boolean): Promise<void> {
     }
     sharedFiles = reset ? payload.files : [...sharedFiles, ...payload.files];
     sharedFilesCursor = payload.nextCursor;
+    sharedFilesPartition = payload.partition;
+    filePartitionSelect.replaceChildren(
+      ...(adminSessionActive ? [new Option("全部分區", "all")] : []),
+      new Option("共用暫存區", "shared"),
+      ...payload.partitions.map((p) => new Option(p.label, p.id)),
+    );
+    filePartitionSelect.value = payload.partition;
     renderSharedFiles();
   } catch (error) {
     if (request.signal.aborted || !request.isCurrent()) {
@@ -1362,7 +1408,9 @@ function activateInvitation(session: InvitationSessionInfo): boolean {
     window.location.assign("/files");
     return false;
   }
-  invitationLabel.textContent = session.label;
+  invitationLabel.textContent = session.partitionLabel
+    ? `${session.partitionLabel} · ${session.label}`
+    : session.label;
   invitationRemaining.textContent =
     `${session.remainingFiles === null ? "不限檔案數" : `剩餘 ${session.remainingFiles} 個檔案`}、` +
     `${formatBytes(session.remainingBytes)} 可用；` +
@@ -1559,7 +1607,9 @@ function renderInvitationGroup(
       const heading = document.createElement("div");
       heading.className = "invitation-card__heading";
       const label = document.createElement("strong");
-      label.textContent = invitation.label;
+      label.textContent = invitation.partitionLabel
+        ? `${invitation.label} · ${invitation.partitionLabel}`
+        : invitation.label;
       const status = document.createElement("span");
       status.className =
         invitation.status === "active"
@@ -1653,7 +1703,11 @@ function renderInvitationGroup(
         revoke.className = "secondary-button danger-button";
         revoke.textContent = "撤銷邀請";
         revoke.addEventListener("click", () => {
-          if (!window.confirm(`撤銷「${invitation.label}」？所有相關邀請 session 也會失效。`)) {
+          if (
+            !window.confirm(
+              `撤銷「${invitation.label}」？此憑證的所有登入裝置會失效。${invitation.partitionId ? "若這是分區最後一張有效憑證，將刪除該區全部檔案且無法復原。" : ""}`,
+            )
+          ) {
             return;
           }
           revoke.disabled = true;
@@ -1750,6 +1804,7 @@ async function loadAdminInvitations(): Promise<void> {
   }
   adminInvitations = payload.invitations.map(parseAdminInvitation);
   renderInvitations(adminInvitations);
+  await loadPrivatePartitions(loadAdminInvitations);
 }
 
 async function createAdminInvitation(): Promise<CreatedInvitation> {
@@ -1776,6 +1831,7 @@ async function createAdminInvitation(): Promise<CreatedInvitation> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       label,
+      ...credentialPartitionFields(),
       expiresInSeconds: days * 86_400,
       canUpload,
       maxFiles: canUpload ? maxFiles : 0,
@@ -1930,7 +1986,17 @@ function updateInvitationPermissionFields(): void {
   inviteMbInput.disabled = !canUpload;
   inviteUnlimitedFilesInput.disabled = !canUpload;
   createInviteButton.textContent = canUpload ? "建立並複製邀請" : "建立並複製僅瀏覽邀請";
+  updatePartitionFields();
 }
+
+onPartitionSelectionChange(updateInvitationPermissionFields);
+filePartitionSelect.addEventListener("change", () => {
+  sharedFilesPartition = filePartitionSelect.value;
+  void loadSharedFiles(true).catch((error: unknown) => {
+    sharedFilesStatus.textContent = error instanceof Error ? error.message : "無法讀取分區。";
+    retrySharedFilesButton.classList.remove("is-hidden");
+  });
+});
 
 let automaticInvitationLabel = "";
 

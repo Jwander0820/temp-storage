@@ -20,6 +20,9 @@ export interface FileRecord {
   readonly uploader_hash: string | null;
   readonly sha256: string | null;
   readonly invitation_id: string | null;
+  readonly partition_id?: string | null;
+  readonly partition_label?: string | null;
+  readonly uploader_label?: string | null;
 }
 
 export interface PublicFile {

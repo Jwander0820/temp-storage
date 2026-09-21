@@ -1,8 +1,8 @@
 # 系統架構總覽
 
 > 狀態：現行架構  
-> 最後更新：2026-09-04
-> 適用版本：D1 migrations `0001`–`0011`
+> 最後更新：2026-09-21
+> 適用版本：D1 migrations `0001`–`0012`
 
 ## 1. 系統目標
 
@@ -14,7 +14,7 @@ Jwander Temp Storage 是私有、邀請制的共享暫存檔案服務。系統�
 - 管理員邀請管理與檔案刪除。
 - 到期清理、D1/R2 reconciliation 與 R2 lifecycle 保險。
 
-它不是永久雲端硬碟，也不提供資料夾、版本控制、帳號系統或細粒度單檔 ACL。檔案在有效期間對所有持有有效 invitation session 的受邀者可見；取得公開單檔 URL 後，可在檔案有效期間直接開啟或下載。
+它不是永久雲端硬碟，也不提供階層資料夾、版本控制、帳號系統或細粒度單檔 ACL。一般邀請只能列出共用暫存區；私密邀請另可列出所屬分區，管理員可查看全部或單一分區。取得公開單檔 URL 後，仍可在檔案有效期間直接開啟或下載。分區是目錄可見性的界線，並不為 CDN 加上驗證。
 
 ## 2. 技術棧
 
@@ -97,6 +97,12 @@ test/                   # Workers runtime、D1 與 R2 整合測試
 
 邀請交換會在讀取 JSON 與呼叫 Turnstile 前先套用 IP 限流。所有 JSON mutation request 固定限制為 16 KiB，避免大型或畸形 request 放大 Worker 成本。
 
+私密分區使用 `private_partitions` 保存共用期限與累計上傳額度；每個上傳者使用獨立 `upload_invitations` 憑證。`effective_invitations` 讓驗證、配額與 session 即時讀取分區政策；同一 D1 reservation transaction 累計所有同區憑證的事件，避免並行超額。增發憑證不增加額度，「複製邀請」則仍是同一上傳者的等效連結。
+
+管理員可修改尚未到期分區的名稱、到期日、檔案數及容量，所有憑證同步生效。縮減額度只阻止新的 reservation，已預留上傳可完成。session 本身仍有短期上限，延長分區不延長既有 Cookie，需要時可由原連結重新驗證。
+
+撤銷單張憑證會撤銷其 session；撤銷最後一張有效憑證時，同一 transaction 將分區關閉。直接刪除分區則關閉分區及全部憑證。到期或關閉後，Worker 立即停止列表與單檔存取，進行有界、可重試的 R2 刪除與帳本釋放；Cron 接續剩餘清理。已關閉或到期分區不可延長、復活或增發。
+
 ### 6.2 管理員登入
 
 ```text
@@ -136,6 +142,7 @@ PUT /api/uploads/:uploadId
 ### 6.4 瀏覽、預覽與下載
 
 - `/api/files` 需要有效 invitation 或 admin session，使用 `created_at + id` cursor 分頁。
+- `partition` 篩選在 SQL 分頁前套用；私密邀請預設顯示自己的分區，可切換共用區，不能查其他分區或 `all`。管理員預設顯示全部。
 - 清單只回傳 `active` 且未到期的安全 public serializer，不含 object key、hash 或 invitation ID。
 - `/file/:id` 是前端單檔頁面。
 - 白名單媒體可使用 `cdn.jwander.net` 的 R2 URL inline 預覽。
@@ -176,20 +183,24 @@ Worker 提供的公開單檔 metadata、預覽與下載會在 D1／R2 前共用�
 
 R2 Lifecycle Rule 對 `temp-storage/objects/` 提供 90 天漏刪保險，但不取代 Worker cleanup，也不更新 D1 帳本。
 
+私密檔案的 `files.expires_at` 保留原本檔案保留期限；`effective_files` 以原期限與分區期限的較早者提供查詢及清理。延長分區可延長尚存檔案的有效期，但不會超過每個檔案原本的 90 天上限。共用區檔案仍不因一般邀請撤銷或到期而刪除。R2 Custom Domain 已快取的內容可能在刪除後短暫保留，不承諾即時撤回已分享內容。
+
 ## 7. D1 資料模型
 
-| Table                      | 角色                                                                          |
-| -------------------------- | ----------------------------------------------------------------------------- |
-| `files`                    | 檔案 metadata、狀態、MIME、期限、R2 key 與 invitation 關聯                    |
-| `upload_reservations`      | 上傳前的 byte reservation 與釋放狀態                                          |
-| `storage_usage`            | 全站 used/reserved/max bytes 單列帳本                                         |
-| `rate_limit_events`        | IP hash 與 invitation 維度的 reservation／流量事件                            |
-| `upload_invitations`       | 主要 token hash、label、期限、檔案／容量額度、`unlimited_files`、`can_upload` |
-| `upload_invitation_tokens` | 同一邀請額外簽發的 token hash；不保存明文 token                               |
-| `upload_sessions`          | Invitation 的短期 HttpOnly session hash 與撤銷狀態                            |
-| `admin_sessions`           | 管理員短期 HttpOnly session hash 與撤銷狀態                                   |
-| `cleanup_runs`             | 排程清理的開始、結果與錯誤統計                                                |
-| `reconciliation_state`     | D1／R2 reconciliation 的單例 phase 與續跑 cursor                              |
+| Table                                       | 角色                                                                          |
+| ------------------------------------------- | ----------------------------------------------------------------------------- |
+| `files`                                     | 檔案 metadata、狀態、MIME、期限、R2 key 與 invitation 關聯                    |
+| `upload_reservations`                       | 上傳前的 byte reservation 與釋放狀態                                          |
+| `storage_usage`                             | 全站 used/reserved/max bytes 單列帳本                                         |
+| `rate_limit_events`                         | IP hash 與 invitation 維度的 reservation／流量事件                            |
+| `upload_invitations`                        | 主要 token hash、label、期限、檔案／容量額度、`unlimited_files`、`can_upload` |
+| `private_partitions`                        | 私密分區名稱、共用期限／額度、關閉狀態；檔案及憑證透過 `partition_id` 關聯    |
+| `effective_invitations` / `effective_files` | 讀取用 view：套用共用政策及實際檔案期限，不保存額外 token                     |
+| `upload_invitation_tokens`                  | 同一邀請額外簽發的 token hash；不保存明文 token                               |
+| `upload_sessions`                           | Invitation 的短期 HttpOnly session hash 與撤銷狀態                            |
+| `admin_sessions`                            | 管理員短期 HttpOnly session hash 與撤銷狀態                                   |
+| `cleanup_runs`                              | 排程清理的開始、結果與錯誤統計                                                |
+| `reconciliation_state`                      | D1／R2 reconciliation 的單例 phase 與續跑 cursor                              |
 
 Schema 只透過 `migrations/` 依序演進。不得修改已在正式環境套用的舊 migration；新增下一個編號並讓程式在 migration 前後的部署順序可預期。
 
@@ -225,6 +236,8 @@ Schema 只透過 `migrations/` 依序演進。不得修改已在正式環境套�
 - `POST /api/admin/invitations/:invitationId/copy`
 - `POST /api/admin/invitations/:invitationId/reissue`
 - `DELETE /api/admin/invitations/:invitationId`
+- `GET /api/admin/partitions`
+- `PATCH|DELETE /api/admin/partitions/:partitionId`
 - `GET /api/admin/files`
 - `DELETE /api/admin/files/:fileId`
 - `POST /api/admin/cleanup`

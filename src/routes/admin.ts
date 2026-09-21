@@ -9,6 +9,7 @@ import { jsonBodyLimitMiddleware } from "../middleware/request-protection";
 import { listAdminFiles } from "../repositories/file-repository";
 import {
   createInvitation,
+  getInvitationSummary,
   issueAdditionalInvitationToken,
   invitationStatus,
   listInvitations,
@@ -29,6 +30,13 @@ import { verifyTurnstile } from "../services/turnstile-service";
 import { randomToken } from "../utils/hash";
 import { timingSafeStringEqual } from "../utils/hash";
 import { readJsonBody } from "../utils/request";
+import {
+  closePartitions,
+  createPartitionCredential,
+  listPartitions,
+  updatePartition,
+} from "../repositories/partition-repository";
+import { cleanClosedPartition, partitionPayload } from "../services/partition-service";
 
 const FILE_STATUSES = new Set<FileStatus>([
   "reserved",
@@ -259,6 +267,7 @@ adminRoutes.get("/files", async (context) => {
   const now = Math.floor(Date.now() / 1000);
   const cursor = decodeCursor(context.req.query("cursor"));
   const files = await listAdminFiles(context.env.DB, {
+    partitionId: context.req.query("partition") ?? null,
     status,
     mime: context.req.query("mime") ?? null,
     createdBefore: parseOptionalEpoch(context.req.query("createdBefore")),
@@ -282,6 +291,9 @@ adminRoutes.get("/files", async (context) => {
       return {
         id: file.id,
         filename: file.original_name,
+        partitionId: file.partition_id ?? null,
+        partitionLabel: file.partition_label ?? null,
+        uploaderLabel: file.uploader_label ?? null,
         extension: file.extension,
         declaredMime: file.declared_mime,
         detectedMime: file.detected_mime,
@@ -301,11 +313,26 @@ adminRoutes.get("/files", async (context) => {
 
 adminRoutes.post("/invitations", jsonBodyLimitMiddleware, async (context) => {
   const config = getConfig(context.env);
-  const input = parseCreateInvitation(await readJsonBody(context), config);
+  const body = await readJsonBody(context);
+  const input = parseCreateInvitation(body, config);
+  const record = body as Record<string, unknown>;
+  const partitionId = record.partitionId;
+  const partitionLabel = record.partitionLabel;
+  if (
+    (partitionId !== undefined &&
+      (typeof partitionId !== "string" || partitionId.length === 0 || partitionId.length > 80)) ||
+    (partitionLabel !== undefined &&
+      (typeof partitionLabel !== "string" ||
+        partitionLabel.trim().length === 0 ||
+        partitionLabel.trim().length > 80)) ||
+    (partitionId !== undefined && partitionLabel !== undefined)
+  ) {
+    throw new DomainError("INVALID_REQUEST", 400, "請選擇現有分區，或填寫新分區名稱。");
+  }
   const now = Math.floor(Date.now() / 1000);
   const token = randomToken(32);
   const id = randomToken(16);
-  await createInvitation(context.env.DB, {
+  const invitationInput = {
     id,
     tokenHash: await createInvitationTokenHash(context.env.DELETE_TOKEN_PEPPER, token),
     label: input.label,
@@ -315,7 +342,27 @@ adminRoutes.post("/invitations", jsonBodyLimitMiddleware, async (context) => {
     canUpload: input.canUpload,
     createdAt: now,
     expiresAt: now + input.expiresInSeconds,
-  });
+  };
+  if (typeof partitionId === "string" || typeof partitionLabel === "string") {
+    await createPartitionCredential(
+      context.env.DB,
+      typeof partitionId === "string" ? partitionId : randomToken(16),
+      invitationInput,
+      typeof partitionLabel === "string"
+        ? {
+            label: partitionLabel.trim(),
+            expiresAt: invitationInput.expiresAt,
+            maxFiles: input.maxFiles,
+            unlimitedFiles: input.unlimitedFiles,
+            maxBytes: input.maxBytes,
+          }
+        : null,
+    );
+  } else {
+    await createInvitation(context.env.DB, invitationInput);
+  }
+  const effective = await getInvitationSummary(context.env.DB, id);
+  if (effective === null) throw new DomainError("INTERNAL_ERROR", 500, "無法讀取邀請。");
 
   return context.json(
     {
@@ -323,11 +370,13 @@ adminRoutes.post("/invitations", jsonBodyLimitMiddleware, async (context) => {
       label: input.label,
       inviteUrl: `${config.uploadOrigin}/invite#token=${token}`,
       token,
+      partitionId: effective.partition_id,
+      partitionLabel: effective.partition_label,
       canUpload: input.canUpload,
-      maxFiles: input.canUpload ? input.maxFiles : 0,
-      unlimitedFiles: input.canUpload ? input.unlimitedFiles : false,
-      maxBytes: input.canUpload ? input.maxBytes : 0,
-      expiresAt: new Date((now + input.expiresInSeconds) * 1000).toISOString(),
+      maxFiles: input.canUpload ? effective.max_files : 0,
+      unlimitedFiles: input.canUpload && effective.unlimited_files === 1,
+      maxBytes: input.canUpload ? effective.max_bytes : 0,
+      expiresAt: new Date(effective.expires_at * 1000).toISOString(),
     },
     201,
   );
@@ -340,6 +389,8 @@ adminRoutes.get("/invitations", async (context) => {
     invitations: invitations.map((invitation) => ({
       id: invitation.id,
       label: invitation.label,
+      partitionId: invitation.partition_id,
+      partitionLabel: invitation.partition_label,
       status: invitationStatus(invitation, now),
       canUpload: invitation.can_upload === 1,
       maxFiles: invitation.can_upload === 1 ? invitation.max_files : 0,
@@ -412,12 +463,58 @@ adminRoutes.post("/invitations/:invitationId/reissue", async (context) => {
 });
 
 adminRoutes.delete("/invitations/:invitationId", async (context) => {
+  const invitation = await getInvitationSummary(context.env.DB, context.req.param("invitationId"));
   await revokeInvitation(
     context.env.DB,
     context.req.param("invitationId"),
     Math.floor(Date.now() / 1000),
   );
+  if (invitation?.partition_id) {
+    await cleanClosedPartition(context.env, invitation.partition_id, Math.floor(Date.now() / 1000));
+  }
   return context.body(null, 204);
+});
+
+adminRoutes.get("/partitions", async (context) => {
+  const now = Math.floor(Date.now() / 1000);
+  return context.json({
+    partitions: (await listPartitions(context.env.DB, now)).map((p) => partitionPayload(p, now)),
+  });
+});
+
+adminRoutes.patch("/partitions/:partitionId", jsonBodyLimitMiddleware, async (context) => {
+  const body = await readJsonBody(context);
+  if (typeof body !== "object" || body === null)
+    throw new DomainError("INVALID_REQUEST", 400, "分區資料格式不正確。");
+  const record = body as Record<string, unknown>;
+  const now = Math.floor(Date.now() / 1000);
+  const expiresAt =
+    typeof record.expiresAt === "string" ? Date.parse(record.expiresAt) / 1000 : NaN;
+  const input = parseCreateInvitation(
+    { ...record, canUpload: true, expiresInSeconds: expiresAt - now },
+    { ...getConfig(context.env), invitationMinTtlSeconds: 1 },
+  );
+  await updatePartition(
+    context.env.DB,
+    context.req.param("partitionId"),
+    {
+      label: input.label,
+      expiresAt,
+      maxFiles: input.maxFiles,
+      unlimitedFiles: input.unlimitedFiles,
+      maxBytes: input.maxBytes,
+    },
+    now,
+  );
+  return context.body(null, 204);
+});
+
+adminRoutes.delete("/partitions/:partitionId", async (context) => {
+  const id = context.req.param("partitionId");
+  const now = Math.floor(Date.now() / 1000);
+  await closePartitions(context.env.DB, now, id, true);
+  const cleanup = await cleanClosedPartition(context.env, id, now);
+  return context.json({ status: "deleting", ...cleanup }, 202);
 });
 
 adminRoutes.post("/cleanup", async (context) => {

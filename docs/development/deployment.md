@@ -1,7 +1,7 @@
 # Cloudflare 環境與部署
 
 > 狀態：現行操作文件  
-> 最後更新：2026-08-29
+> 最後更新：2026-09-21
 > 用途：建立或維護 Cloudflare 資源、Workers Builds 與正式部署
 
 日常部署優先透過 GitHub 與 Cloudflare Workers Builds 完成。只有重建環境、修復資源或自動部署無法使用時，才需要執行本文件中的手動命令。
@@ -16,7 +16,7 @@
 | R2                | `cdn` bucket，僅使用 `temp-storage/objects/` prefix       |
 | R2 Custom Domain  | `https://cdn.jwander.net`                                 |
 | D1                | `jwander-temp-storage-db`                                 |
-| Migration files   | `0001`–`0011`                                             |
+| Migration files   | `0001`–`0012`                                             |
 | 正式 migration    | 以 Cloudflare deployment log 為準；公開文件不記錄線上狀態 |
 | Scheduled trigger | `0 * * * *`                                               |
 | Cloudflare Access | 只允許保護 Admin paths；線上狀態記錄於私人 Operations     |
@@ -33,6 +33,14 @@
 5. 在 **Workers & Pages → jwander-temp-storage → Deployments → Build history** 確認結果。
 
 不要在同一次更新同時使用自動部署與本機手動部署，避免重複執行 migration 或產生難以追蹤的部署順序。
+
+私密分區功能需先套用 `0012_private_partitions.sql`，再一起交付新版 Worker 與 Static Assets。
+Migration 為新增資料表、nullable 關聯欄位、索引及讀取 view，既有檔案維持共用區。
+正式 migration 與部署仍需明確授權。本機通過不代表已套用正式環境。
+
+建立私密分區資料後，不可直接回退到沒有分區篩選的舊 Worker，否則舊列表會列出私密檔案。
+需要回退時應使用保留分區過濾／生命週期支援的修正版，或先停用入口並另行規劃資料處置；
+不要為回退而直接刪除分區欄位或資料表。
 
 ## Workers Builds 設定
 
@@ -201,7 +209,7 @@ hostname 的 HTTPS 盤點前，不使用 zone-wide HSTS；改用只匹配 `uploa
 
 ## 邊緣防護與成本護欄
 
-完整免費額度、每操作估算、denial-of-wallet 情境與每月檢查表見
+官方計價來源、用量量測方法、通用成本護欄與定期檢查表見
 [`../reference/cloudflare-free-tier-and-cost.md`](../reference/cloudflare-free-tier-and-cost.md)。
 公開的 CDN WAF、Cache、Rate Limiting、Budget Alert 與驗證原則見
 [`cloudflare-edge-protection.md`](./cloudflare-edge-protection.md)。

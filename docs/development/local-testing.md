@@ -91,6 +91,17 @@ blob 檔名是 Miniflare 的內部識別值，不是原始檔名。驗證內容�
 pnpm exec wrangler d1 execute jwander-temp-storage-db --local --command "SELECT original_name, object_key, size_bytes, status, expires_at FROM files ORDER BY created_at DESC"
 ```
 
+## 私密分區驗收
+
+先套用本機 migration `0012_private_partitions.sql`。在管理頁建立分區 A 與首張憑證，再於 A 增發另一張具不同上傳者標籤的憑證，另建立分區 B 和一般共用邀請。
+
+1. A 兩張憑證共享期限、檔案數與容量，管理員可查看上傳者及單區檔案；B 與一般邀請無法列出 A 的檔案。
+2. A 持有者可切換共用區，已知單檔 URL 仍可在無 session 下使用。
+3. 編輯 A 的期限與配額，既有 session 應讀到新值；延長不超過各檔案原本 90 天上限。降低配額後保留既有檔案，拒絕超額的新 reservation。
+4. 撤銷 A 第一張憑證時檔案保留；撤銷最後一張時進入清理。另一分區與共用區檔案保持有效。
+5. 管理員刪除分區時全部憑證失效；清理失敗可重試。到期、R2 失敗、並行 reservation、上傳途中刪除等由 `test/partition.test.ts` 驗證。
+6. 在亮／暗模式、桌面與 375px 檢查新建、增發、設定編輯、關閉狀態、鍵盤與 Focus／Disabled，以及無水平溢位。
+
 ## 與正式環境的邊界
 
 - `db:migrate:local` 明確使用 `--local`。

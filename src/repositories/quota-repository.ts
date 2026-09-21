@@ -1,5 +1,6 @@
 import type { StorageUsage, UploadRateLimits } from "../domain/quota";
 import { DomainError } from "../domain/errors";
+import { getInvitationSummary } from "./invitation-repository";
 
 export interface ReservationWrite {
   readonly eventId: string;
@@ -74,7 +75,7 @@ export async function reserveQuotaAndCreateRecords(
          ), 0) + ?3 <= ${limits.dailyBytes}
          AND EXISTS (
            SELECT 1
-           FROM upload_invitations invitation
+           FROM effective_invitations invitation
            WHERE invitation.id = ?5
              AND invitation.status = 'active'
              AND invitation.expires_at > ?4
@@ -84,13 +85,19 @@ export async function reserveQuotaAndCreateRecords(
                OR (
                  SELECT COUNT(*)
                  FROM rate_limit_events
-                 WHERE invitation_id = ?5
+                 WHERE invitation_id IN (
+                   SELECT member.id FROM upload_invitations member
+                   WHERE member.id = ?5 OR (invitation.partition_id IS NOT NULL AND member.partition_id = invitation.partition_id)
+                 )
                ) < invitation.max_files
              )
              AND COALESCE((
                SELECT SUM(size_bytes)
                FROM rate_limit_events
-               WHERE invitation_id = ?5
+               WHERE invitation_id IN (
+                 SELECT member.id FROM upload_invitations member
+                 WHERE member.id = ?5 OR (invitation.partition_id IS NOT NULL AND member.partition_id = invitation.partition_id)
+               )
              ), 0) + ?3 <= invitation.max_bytes
          )
          AND EXISTS (
@@ -115,9 +122,10 @@ export async function reserveQuotaAndCreateRecords(
       .prepare(
         `INSERT INTO files (
            id, object_key, original_name, extension, declared_mime,
-           size_bytes, status, created_at, expires_at, uploader_hash, invitation_id
+           size_bytes, status, created_at, expires_at, uploader_hash, invitation_id, partition_id
          )
-         SELECT ?1, ?2, ?3, ?4, ?5, ?6, 'reserved', ?7, ?8, ?9, ?10
+         SELECT ?1, ?2, ?3, ?4, ?5, ?6, 'reserved', ?7, ?8, ?9, ?10,
+           (SELECT partition_id FROM upload_invitations WHERE id = ?10)
          WHERE EXISTS (
            SELECT 1 FROM rate_limit_events WHERE id = ?11
          )`,
@@ -182,33 +190,7 @@ export async function reserveQuotaAndCreateRecords(
     throw new DomainError("STORAGE_LIMIT_EXCEEDED", 507, "暫存區容量已滿，請等待舊檔案清除。");
   }
 
-  const invitation = await database
-    .prepare(
-      `SELECT
-         status,
-         expires_at,
-         max_files,
-         unlimited_files,
-         max_bytes,
-         can_upload,
-         (SELECT COUNT(*) FROM rate_limit_events WHERE invitation_id = ?1) AS used_files,
-         COALESCE((
-           SELECT SUM(size_bytes) FROM rate_limit_events WHERE invitation_id = ?1
-         ), 0) AS used_bytes
-       FROM upload_invitations
-       WHERE id = ?1`,
-    )
-    .bind(input.invitationId)
-    .first<{
-      status: "active" | "revoked";
-      expires_at: number;
-      max_files: number;
-      unlimited_files: 0 | 1;
-      max_bytes: number;
-      can_upload: 0 | 1;
-      used_files: number;
-      used_bytes: number;
-    }>();
+  const invitation = await getInvitationSummary(database, input.invitationId);
   if (
     invitation === null ||
     invitation.status !== "active" ||

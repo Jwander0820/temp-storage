@@ -18,7 +18,7 @@ export async function getAccessibleFile(
   return database
     .prepare(
       `SELECT *
-       FROM files
+       FROM effective_files
        WHERE id = ?1
          AND status = 'active'
          AND expires_at > ?2`,
@@ -118,9 +118,12 @@ export async function listFilesForCleanup(
   const result = await database
     .prepare(
       `SELECT *
-       FROM files
+       FROM effective_files
        WHERE (status = 'active' AND expires_at <= ?1)
           OR status = 'deleting'
+          OR (status IN ('failed', 'rejected') AND partition_id IN (
+            SELECT id FROM private_partitions WHERE status = 'revoked'
+          ))
        ORDER BY expires_at
        LIMIT ?2`,
     )
@@ -230,6 +233,7 @@ export async function purgeFailedUploadMetadata(
 }
 
 export interface AdminFileFilter {
+  readonly partitionId?: string | null;
   readonly status: FileStatus | null;
   readonly mime: string | null;
   readonly createdBefore: number | null;
@@ -248,13 +252,14 @@ export async function listAdminFiles(
   const result = await database
     .prepare(
       `SELECT *
-       FROM files
+       FROM effective_files
        WHERE (?1 IS NULL OR status = ?1)
          AND (?2 IS NULL OR detected_mime = ?2)
          AND (?3 IS NULL OR created_at < ?3)
          AND (?4 IS NULL OR created_at > ?4)
          AND (?5 IS NULL OR expires_at < ?5)
          AND (?6 IS NULL OR expires_at > ?6)
+         AND (?10 IS NULL OR partition_id = ?10 OR (?10 = 'shared' AND partition_id IS NULL))
          AND (
            ?7 IS NULL
            OR created_at < ?7
@@ -273,6 +278,7 @@ export async function listAdminFiles(
       filter.cursorCreatedAt,
       filter.cursorId,
       filter.limit,
+      filter.partitionId ?? null,
     )
     .all<FileRecord>();
   return result.results;
