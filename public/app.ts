@@ -1759,7 +1759,7 @@ function renderInvitations(invitations: AdminInvitation[]): void {
   const activePageResult = renderInvitationGroup(
     activeInvitationList,
     active,
-    "目前沒有有效邀請。從左側設定額度後即可建立。",
+    "目前沒有有效邀請。可在「建立邀請」設定額度後新增。",
     activeInvitationPage,
   );
   activeInvitationPage = activePageResult.page;
