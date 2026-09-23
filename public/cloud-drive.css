@@ -1073,6 +1073,12 @@ select {
   gap: 16px;
   align-items: start;
 }
+.admin-management {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
 .invite-composer,
 .invitation-ledger {
   padding: clamp(20px, 3vw, 28px);

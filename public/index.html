@@ -427,105 +427,108 @@
             </div>
           </section>
 
-          <section class="invitation-ledger" aria-labelledby="private-partitions-title">
-            <div class="section-heading"><h2 id="private-partitions-title">私密分區</h2></div>
-            <p>
-              同區憑證共用期限與累計上傳額度。到期、刪除分區或撤銷最後一張憑證後，該區檔案會刪除。
-            </p>
-            <div class="invitation-groups">
-              <div id="privatePartitionList" class="invitation-list" aria-live="polite">
-                正在讀取私密分區。
-              </div>
-              <details id="privatePartitionHistory" class="invitation-group is-hidden">
-                <summary>
-                  <span>
-                    <span class="invitation-group__title">歷史分區</span>
-                    <span id="privatePartitionHistoryCount" class="count-badge">0</span>
-                  </span>
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="m7.5 9.5 4.5 4.5 4.5-4.5" />
-                  </svg>
-                </summary>
-                <p class="invitation-group__hint">已關閉且檔案清理完成，無法復原。</p>
-                <ul id="privatePartitionHistoryList" class="partition-history" role="list"></ul>
-              </details>
-            </div>
-          </section>
-          <section class="invitation-ledger" aria-labelledby="invitation-list-title">
-            <div class="section-heading">
-              <div>
-                <p class="label">邀請帳本</p>
-                <h2 id="invitation-list-title">邀請管理</h2>
-              </div>
-              <button id="refreshInvitationsButton" class="text-button" type="button">
-                重新整理
-              </button>
-            </div>
-            <div class="invitation-groups" aria-live="polite">
-              <details class="invitation-group" open>
-                <summary>
-                  <span>
-                    <span id="active-invitations-title" class="invitation-group__title"
-                      >有效邀請</span
-                    >
-                    <span id="activeInvitationCount" class="count-badge">0</span>
-                  </span>
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="m7.5 9.5 4.5 4.5 4.5-4.5" />
-                  </svg>
-                </summary>
-                <p class="invitation-group__hint">
-                  複製會保留原有連結與登入狀態；重新簽發則會讓舊憑證立即失效。
-                </p>
-                <div id="activeInvitationList" class="invitation-list">
-                  <p class="empty-state">正在讀取邀請。</p>
+          <div class="admin-management">
+            <section class="invitation-ledger" aria-labelledby="invitation-list-title">
+              <div class="section-heading">
+                <div>
+                  <p class="label">邀請帳本</p>
+                  <h2 id="invitation-list-title">邀請管理</h2>
                 </div>
-                <nav
-                  id="activeInvitationPagination"
-                  class="invitation-pagination is-hidden"
-                  aria-label="有效邀請分頁"
-                >
-                  <button id="activeInvitationPrevious" class="text-button" type="button">
-                    上一頁
-                  </button>
-                  <span id="activeInvitationPageStatus">第 1 頁</span>
-                  <button id="activeInvitationNext" class="text-button" type="button">
-                    下一頁
-                  </button>
-                </nav>
-              </details>
-              <details class="invitation-group">
-                <summary>
-                  <span>
-                    <span id="invitation-history-title" class="invitation-group__title"
-                      >歷史邀請</span
-                    >
-                    <span id="invitationHistoryCount" class="count-badge">0</span>
-                  </span>
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="m7.5 9.5 4.5 4.5 4.5-4.5" />
-                  </svg>
-                </summary>
-                <p class="invitation-group__hint">已撤銷與已到期的邀請會保留在這裡。</p>
-                <div id="invitationHistoryList" class="invitation-list">
-                  <p class="empty-state">正在讀取邀請。</p>
+                <button id="refreshInvitationsButton" class="text-button" type="button">
+                  重新整理
+                </button>
+              </div>
+              <div class="invitation-groups" aria-live="polite">
+                <details class="invitation-group" open>
+                  <summary>
+                    <span>
+                      <span id="active-invitations-title" class="invitation-group__title"
+                        >有效邀請</span
+                      >
+                      <span id="activeInvitationCount" class="count-badge">0</span>
+                    </span>
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="m7.5 9.5 4.5 4.5 4.5-4.5" />
+                    </svg>
+                  </summary>
+                  <p class="invitation-group__hint">
+                    複製會保留原有連結與登入狀態；重新簽發則會讓舊憑證立即失效。
+                  </p>
+                  <div id="activeInvitationList" class="invitation-list">
+                    <p class="empty-state">正在讀取邀請。</p>
+                  </div>
+                  <nav
+                    id="activeInvitationPagination"
+                    class="invitation-pagination is-hidden"
+                    aria-label="有效邀請分頁"
+                  >
+                    <button id="activeInvitationPrevious" class="text-button" type="button">
+                      上一頁
+                    </button>
+                    <span id="activeInvitationPageStatus">第 1 頁</span>
+                    <button id="activeInvitationNext" class="text-button" type="button">
+                      下一頁
+                    </button>
+                  </nav>
+                </details>
+                <details class="invitation-group">
+                  <summary>
+                    <span>
+                      <span id="invitation-history-title" class="invitation-group__title"
+                        >歷史邀請</span
+                      >
+                      <span id="invitationHistoryCount" class="count-badge">0</span>
+                    </span>
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="m7.5 9.5 4.5 4.5 4.5-4.5" />
+                    </svg>
+                  </summary>
+                  <p class="invitation-group__hint">已撤銷與已到期的邀請會保留在這裡。</p>
+                  <div id="invitationHistoryList" class="invitation-list">
+                    <p class="empty-state">正在讀取邀請。</p>
+                  </div>
+                  <nav
+                    id="invitationHistoryPagination"
+                    class="invitation-pagination is-hidden"
+                    aria-label="歷史邀請分頁"
+                  >
+                    <button id="invitationHistoryPrevious" class="text-button" type="button">
+                      上一頁
+                    </button>
+                    <span id="invitationHistoryPageStatus">第 1 頁</span>
+                    <button id="invitationHistoryNext" class="text-button" type="button">
+                      下一頁
+                    </button>
+                  </nav>
+                </details>
+              </div>
+            </section>
+
+            <section class="invitation-ledger" aria-labelledby="private-partitions-title">
+              <div class="section-heading"><h2 id="private-partitions-title">私密分區</h2></div>
+              <p>
+                同區憑證共用期限與累計上傳額度。到期、刪除分區或撤銷最後一張憑證後，該區檔案會刪除。
+              </p>
+              <div class="invitation-groups">
+                <div id="privatePartitionList" class="invitation-list" aria-live="polite">
+                  正在讀取私密分區。
                 </div>
-                <nav
-                  id="invitationHistoryPagination"
-                  class="invitation-pagination is-hidden"
-                  aria-label="歷史邀請分頁"
-                >
-                  <button id="invitationHistoryPrevious" class="text-button" type="button">
-                    上一頁
-                  </button>
-                  <span id="invitationHistoryPageStatus">第 1 頁</span>
-                  <button id="invitationHistoryNext" class="text-button" type="button">
-                    下一頁
-                  </button>
-                </nav>
-              </details>
-            </div>
-          </section>
+                <details id="privatePartitionHistory" class="invitation-group is-hidden">
+                  <summary>
+                    <span>
+                      <span class="invitation-group__title">歷史分區</span>
+                      <span id="privatePartitionHistoryCount" class="count-badge">0</span>
+                    </span>
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="m7.5 9.5 4.5 4.5 4.5-4.5" />
+                    </svg>
+                  </summary>
+                  <p class="invitation-group__hint">已關閉且檔案清理完成，無法復原。</p>
+                  <ul id="privatePartitionHistoryList" class="partition-history" role="list"></ul>
+                </details>
+              </div>
+            </section>
+          </div>
 
           <section class="admin-security-actions" aria-labelledby="admin-security-title">
             <div>
