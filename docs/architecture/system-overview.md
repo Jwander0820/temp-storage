@@ -1,7 +1,7 @@
 # 系統架構總覽
 
 > 狀態：現行架構  
-> 最後更新：2026-09-21
+> 最後更新：2026-10-02
 > 適用版本：D1 migrations `0001`–`0012`
 
 ## 1. 系統目標
@@ -24,7 +24,7 @@ Jwander Temp Storage 是私有、邀請制的共享暫存檔案服務。系統�
 | Edge API       | Cloudflare Workers、Hono                  | 驗證、配額、檔案政策、媒體串流、清理與 API            |
 | Metadata       | Cloudflare D1                             | 檔案狀態、reservation、邀請、session、配額與清理紀錄  |
 | Object storage | Cloudflare R2 `cdn` bucket                | `temp-storage/objects/` 下的檔案本體                  |
-| Public media   | R2 Custom Domain                          | 只提供白名單 inline 媒體的直接預覽                    |
+| Public media   | R2 Custom Domain                          | 白名單媒體直接預覽；已知物件 URL 可直接附件下載       |
 | Bot protection | Cloudflare Turnstile                      | 邀請交換與管理員登入前的人機驗證                      |
 | Rate limiting  | Workers Rate Limiting binding + D1 events | 邀請交換、檔案讀取、刪除、清單輪詢與上傳 IP／流量限制 |
 | Scheduled work | Worker Cron + R2 Lifecycle                | 每小時清理、每日 reconciliation 與漏刪保險            |
@@ -43,7 +43,7 @@ Browser
   │
   └─ https://cdn.jwander.net
        └─ R2 Custom Domain
-            └─ temp-storage/objects/*（僅安全 inline 預覽）
+            └─ temp-storage/objects/*（安全 inline 預覽或附件下載）
 
 Cron 0 * * * *
   └─ Worker scheduled handler
@@ -182,6 +182,8 @@ Worker 提供的公開單檔 metadata、預覽與下載會在 D1／R2 前共用�
 - 每次 invocation 只處理設定的頁數預算，並把 phase 與 cursor 寫入 `reconciliation_state`；下次從 checkpoint 接續，完成一輪後才清除 checkpoint。
 
 R2 Lifecycle Rule 對 `temp-storage/objects/` 提供 90 天漏刪保險，但不取代 Worker cleanup，也不更新 D1 帳本。
+
+直接 CDN 存取是允許的交付方式，不查詢 D1 狀態或套用 Worker 限流。`download_only` 以附件方式交付，不代表物件對 CDN 不公開；到期／分區關閉與實體刪除間的存取時間差屬接受的產品行為。已知 URL 在物件尚存或快取尚有效時可能仍可讀取，不承諾即時撤銷。
 
 私密檔案的 `files.expires_at` 保留原本檔案保留期限；`effective_files` 以原期限與分區期限的較早者提供查詢及清理。延長分區可延長尚存檔案的有效期，但不會超過每個檔案原本的 90 天上限。共用區檔案仍不因一般邀請撤銷或到期而刪除。R2 Custom Domain 已快取的內容可能在刪除後短暫保留，不承諾即時撤回已分享內容。
 
