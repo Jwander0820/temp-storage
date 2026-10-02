@@ -28,11 +28,15 @@ export function isBlockedExtension(extension: string | null): boolean {
   return extension !== null && BLOCKED_EXTENSIONS.has(extension);
 }
 
+export function hasBidirectionalControls(filename: string): boolean {
+  return /[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u.test(filename);
+}
+
 export function sanitizeOriginalFilename(filename: string): string {
   const withoutControlCharacters = Array.from(filename.normalize("NFC"))
     .filter((character) => {
       const codePoint = character.codePointAt(0) ?? 0;
-      return codePoint >= 32 && codePoint !== 127;
+      return codePoint >= 32 && codePoint !== 127 && !hasBidirectionalControls(character);
     })
     .join("");
   const normalized = withoutControlCharacters.replace(/[\\/]/gu, "_").trim();

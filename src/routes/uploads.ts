@@ -19,7 +19,12 @@ import {
 import { classifyFile, isBlockedDeclaredMime } from "../services/file-type-service";
 import { toPublicFile } from "../services/file-service";
 import { storeObject } from "../services/r2-service";
-import { getExtension, isBlockedExtension, sanitizeOriginalFilename } from "../utils/filename";
+import {
+  getExtension,
+  hasBidirectionalControls,
+  isBlockedExtension,
+  sanitizeOriginalFilename,
+} from "../utils/filename";
 import { createDeleteToken, createFileId, hashPepperedValue } from "../utils/hash";
 import { readJsonBody } from "../utils/request";
 import { peekStream } from "../utils/stream";
@@ -53,6 +58,12 @@ function dateBucket(epochSeconds: number): string {
   return new Date(epochSeconds * 1000).toISOString().slice(0, 10);
 }
 
+function assertSafeFilename(filename: string): void {
+  if (hasBidirectionalControls(filename)) {
+    throw new DomainError("INVALID_REQUEST", 400, "檔名含有文字方向控制字元，請重新命名後再上傳。");
+  }
+}
+
 function objectKey(fileId: string, epochSeconds: number): string {
   const [year, month, day] = dateBucket(epochSeconds).split("-");
   return `${TEMP_OBJECT_PREFIX}${year}/${month}/${day}/${fileId}`;
@@ -83,6 +94,7 @@ uploadRoutes.post("/uploads/reserve", jsonBodyLimitMiddleware, async (context) =
   }
 
   const input = parseReserveInput(await readJsonBody(context));
+  assertSafeFilename(input.filename);
   const filename = sanitizeOriginalFilename(input.filename);
   if (filename.length === 0 || input.filename.length > 255) {
     throw new DomainError("INVALID_REQUEST", 400, "檔名長度不正確。");
@@ -165,6 +177,7 @@ uploadRoutes.put("/uploads/:uploadId", async (context) => {
   if (initial.invitation_id !== context.get("uploadInvitationId")) {
     throw new DomainError("RESERVATION_NOT_FOUND", 404, "找不到這筆上傳預留。");
   }
+  assertSafeFilename(initial.original_name);
 
   const contentLengthText = context.req.header("Content-Length");
   const contentLength = contentLengthText === undefined ? Number.NaN : Number(contentLengthText);
