@@ -28,6 +28,7 @@ import { toPublicFile } from "../services/file-service";
 import { createInvitationTokenHash } from "../services/invitation-service";
 import { verifyTurnstile } from "../services/turnstile-service";
 import { randomToken } from "../utils/hash";
+import { sanitizeOriginalFilename } from "../utils/filename";
 import { timingSafeStringEqual } from "../utils/hash";
 import { readJsonBody } from "../utils/request";
 import {
@@ -290,7 +291,7 @@ adminRoutes.get("/files", async (context) => {
           : null;
       return {
         id: file.id,
-        filename: file.original_name,
+        filename: sanitizeOriginalFilename(file.original_name),
         partitionId: file.partition_id ?? null,
         partitionLabel: file.partition_label ?? null,
         uploaderLabel: file.uploader_label ?? null,

@@ -1,5 +1,6 @@
 import type { AppConfig } from "../env";
 import type { FileRecord, PublicFile } from "../domain/file";
+import { sanitizeOriginalFilename } from "../utils/filename";
 
 export function toPublicFile(file: FileRecord, config: AppConfig): PublicFile {
   if (
@@ -13,7 +14,7 @@ export function toPublicFile(file: FileRecord, config: AppConfig): PublicFile {
 
   return {
     id: file.id,
-    filename: file.original_name,
+    filename: sanitizeOriginalFilename(file.original_name),
     sizeBytes: file.size_bytes,
     detectedMime: file.detected_mime,
     previewPolicy: file.preview_policy,

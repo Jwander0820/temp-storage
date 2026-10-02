@@ -1,7 +1,7 @@
 # API 參考
 
 > 狀態：現行參考文件  
-> 最後更新：2026-09-21
+> 最後更新：2026-10-02
 > 用途：快速查詢路由分區、驗證能力與主要查詢參數
 
 正式入口為 `https://upload.jwander.net`。本文件提供路由導覽；request schema、錯誤碼與安全行為以 route、domain error 與測試為準。
@@ -56,6 +56,10 @@ PUT    /api/uploads/:uploadId
 清單只回傳 `active` 且未到期的安全公開欄位，使用 `created_at DESC, id DESC` keyset 分頁，固定 `private, no-store`。回應不得包含 R2 object key、invitation ID、上傳者 hash 或刪除憑證。
 
 Browse-only invitation session 可以使用檔案與容量查詢，但所有 `/api/uploads/*` 都必須由後端回覆 403。
+
+`POST /api/uploads/reserve` 在建立 file／reservation 或預留容量前，拒絕含 Unicode 雙向文字控制字元的檔名（U+061C、U+200E–U+200F、U+202A–U+202E、U+2066–U+2069），回覆 400 `INVALID_REQUEST`，提示重新命名後再上傳。`PUT /api/uploads/:uploadId` 同樣檢查既有 reservation 的檔名，避免部署前的預留繞過限制；被拒絕的舊預留仍由既有到期清理釋放。一般中日文、阿拉伯文、希伯來文、組合字元及 emoji 檔名仍可使用。
+
+既有檔案在公開／管理 API 與 Worker 下載檔名中移除這些控制字元；不改寫 D1 原始紀錄或既存 R2 HTTP metadata。直接 CDN 下載既有物件時仍使用其原有 metadata。
 
 ## Admin bootstrap
 

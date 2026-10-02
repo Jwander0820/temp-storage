@@ -65,6 +65,140 @@ describe("upload, preview, download, and delete", () => {
     vi.restoreAllMocks();
   });
 
+  it("rejects bidi controls before reserving files or quota", async () => {
+    const controls = [
+      "\u061c",
+      "\u200e",
+      "\u200f",
+      "\u202a",
+      "\u202b",
+      "\u202c",
+      "\u202d",
+      "\u202e",
+      "\u2066",
+      "\u2067",
+      "\u2068",
+      "\u2069",
+    ];
+    const filenames = controls.flatMap((control) => [
+      `${control}invoice.exe`,
+      `invoice${control}gpj.exe`,
+      `invoice.exe${control}`,
+    ]);
+    filenames.push(`${"a".repeat(256)}\u202e.exe`);
+    for (const filename of filenames) {
+      const response = await exports.default.fetch(
+        new Request("https://upload.example.test/api/uploads/reserve", {
+          method: "POST",
+          headers: {
+            Cookie: sessionCookie,
+            Origin: TEST_UPLOAD_ORIGIN,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ filename, sizeBytes: 2 }),
+        }),
+      );
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toMatchObject({
+        error: {
+          code: "INVALID_REQUEST",
+          message: "檔名含有文字方向控制字元，請重新命名後再上傳。",
+        },
+      });
+    }
+    expect(await env.DB.prepare("SELECT COUNT(*) AS count FROM files").first()).toEqual({
+      count: 0,
+    });
+    expect(
+      await env.DB.prepare("SELECT COUNT(*) AS count FROM upload_reservations").first(),
+    ).toEqual({ count: 0 });
+    expect(
+      await env.DB.prepare(
+        "SELECT used_bytes, reserved_bytes FROM storage_usage WHERE id = 1",
+      ).first(),
+    ).toEqual({ used_bytes: 0, reserved_bytes: 0 });
+    expect((await env.FILES.list({ prefix: "temp-storage/objects/" })).objects).toEqual([]);
+  });
+
+  it("blocks bidi filenames in reservations created before the filename policy", async () => {
+    const bytes = new Uint8Array([0x4d, 0x5a]);
+    const reservation = await reserve("invoice.exe", bytes, "application/octet-stream");
+    await env.DB.prepare("UPDATE files SET original_name = ?1 WHERE id = ?2")
+      .bind("invoice\u202egpj.exe", reservation.uploadId)
+      .run();
+    const response = await exports.default.fetch(
+      new Request(`https://upload.example.test${reservation.uploadUrl}`, {
+        method: "PUT",
+        headers: {
+          Cookie: sessionCookie,
+          Origin: TEST_UPLOAD_ORIGIN,
+          "Content-Length": String(bytes.byteLength),
+        },
+        body: bytes,
+      }),
+    );
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "INVALID_REQUEST" } });
+    expect((await env.FILES.list({ prefix: "temp-storage/objects/" })).objects).toEqual([]);
+  });
+
+  it.each(["照片・写真.jpg", "cafe\u0301.jpg", "تقرير-שלום.jpg", "👩‍💻-می\u200cروم.jpg"])(
+    "preserves legitimate Unicode filenames through upload and download: %s",
+    async (filename) => {
+      const { response, result } = await upload(
+        filename,
+        new Uint8Array([0xff, 0xd8, 0xff, 0xd9]),
+        "image/jpeg",
+      );
+      expect(response.status).toBe(200);
+      expect(result.filename).toBe(filename.normalize("NFC"));
+      const download = await exports.default.fetch(
+        new Request(`https://upload.example.test/d/${result.id}`),
+      );
+      expect(download.status).toBe(200);
+      const disposition = download.headers.get("content-disposition") ?? "";
+      expect(decodeURIComponent(disposition.split("filename*=UTF-8''")[1] ?? "")).toBe(
+        filename.normalize("NFC"),
+      );
+    },
+  );
+
+  it("sanitizes legacy filenames in public and admin metadata and Worker downloads", async () => {
+    const { result } = await upload(
+      "invoice.exe",
+      new Uint8Array([0x4d, 0x5a]),
+      "application/octet-stream",
+    );
+    await env.DB.prepare("UPDATE files SET original_name = ?1 WHERE id = ?2")
+      .bind("invoice\u202egpj.exe", result.id)
+      .run();
+    const metadata = await exports.default.fetch(
+      new Request(`https://upload.example.test/api/files/${result.id}`),
+    );
+    await expect(metadata.json()).resolves.toMatchObject({ filename: "invoicegpj.exe" });
+    const publicList = await exports.default.fetch(
+      new Request("https://upload.example.test/api/files", { headers: { Cookie: sessionCookie } }),
+    );
+    await expect(publicList.json()).resolves.toMatchObject({
+      files: [{ filename: "invoicegpj.exe" }],
+    });
+    const adminCookie = await createTestAdminSession();
+    const adminList = await exports.default.fetch(
+      new Request("https://upload.example.test/api/admin/files", {
+        headers: { Cookie: adminCookie },
+      }),
+    );
+    await expect(adminList.json()).resolves.toMatchObject({
+      files: [{ filename: "invoicegpj.exe" }],
+    });
+    const download = await exports.default.fetch(
+      new Request(`https://upload.example.test/d/${result.id}`),
+    );
+    expect(download.headers.get("content-disposition")).toContain(
+      "filename*=UTF-8''invoicegpj.exe",
+    );
+  });
+
   it("uploads and previews a JPEG with range and HEAD support", async () => {
     const bytes = new Uint8Array([0xff, 0xd8, 0xff, 0x11, 0x22, 0xd9]);
     const { response, result } = await upload("照片.jpg", bytes, "image/jpeg");
