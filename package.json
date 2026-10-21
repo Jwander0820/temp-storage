@@ -34,7 +34,7 @@
     "types:check": "cross-env XDG_CONFIG_HOME=.wrangler/xdg CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler types src/worker-configuration.d.ts --check && pnpm typecheck"
   },
   "dependencies": {
-    "hono": "4.13.5",
+    "hono": "4.13.11",
     "qrcode": "^1.5.4"
   },
   "devDependencies": {
